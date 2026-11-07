@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { Download, ExternalLink, MessageCircle, ShieldCheck, X } from "lucide-react";
 import { brl, referenceProduct, safeUrl, requestJson, type PurchaseRequest } from "./contracts";
 
+import RequestActions from "./RequestActions";
+
 function exportEvidence(row: PurchaseRequest) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(row, null, 2)], { type: "application/json" }));
   const anchor = document.createElement("a"); anchor.href = url; anchor.download = `nexo-evidencias-${row.id}.json`; anchor.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export default function SideDrawer({ row, close, openChat, decided }: { row: PurchaseRequest | null; close: () => void; openChat: () => void; decided: () => void }) {
+export default function SideDrawer({ row, close, openChat, decided, deleted, repeated }: { deleted: (id: string) => Promise<void>; repeated: (row: PurchaseRequest) => Promise<void>; row: PurchaseRequest | null; close: () => void; openChat: () => void; decided: () => void }) {
   const [decisionBusy, setDecisionBusy] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState("");
   async function decide(quoteId: string) { if (!row || decisionBusy) return; setDecisionBusy(quoteId); setDecisionError(""); try { await requestJson(`/request/${row.id}/decision`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quote_id: quoteId, version: row.version }) }); decided(); } catch (cause) { setDecisionError(cause instanceof Error ? cause.message : "Não foi possível registrar a decisão."); } finally { setDecisionBusy(null); } }
@@ -32,6 +34,7 @@ export default function SideDrawer({ row, close, openChat, decided }: { row: Pur
     {row && <div className="flex h-full flex-col">
       <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white"><div><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-100">Inteligência da negociação · #{row.id}</p><h2 id="drawer-title" className="mt-2 text-xl font-semibold">{row.item}</h2><p className="mt-2 text-xs text-blue-100">{row.qty} unidade(s) · {row.delivery_location || "Destino a confirmar"}</p></div><button autoFocus onClick={close} aria-label="Fechar detalhes" className="rounded-lg p-2 hover:bg-white/10"><X size={20} /></button></header>
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
+        <RequestActions key={row.id} id={row.id} product={row.item} disabled={decisionBusy !== null} onDeleted={deleted} onRepeated={repeated}/>
         {row.mode === "sandbox" && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Teste no seu Telegram · resultados fora dos indicadores reais.</p>}
         {row.notice && <p role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">{row.notice}</p>}
         <section aria-label="Composição do TCO" className="rounded-2xl bg-[#111827] p-5 text-white shadow-lg"><p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Composição do TCO</p><p className="mt-1 text-[11px] text-slate-400">Produtos + frete + custos adicionais</p><dl className="mt-5 space-y-3 text-sm"><div className="flex justify-between gap-4"><dt className="text-slate-300">Preço unitário final × {row.qty}</dt><dd className="numeric">{audit ? `${brl(audit.final_price)} × ${row.qty}` : row.quote ? `${brl(row.quote.final_price)} × ${row.qty}` : "A confirmar"}</dd></div><div className="flex justify-between"><dt className="text-slate-300">Subtotal de produtos</dt><dd className="numeric">{brl(audit?.product_subtotal ?? (row.quote ? (Number(row.quote.final_price) * row.qty).toFixed(2) : null))}</dd></div><div className="flex justify-between"><dt className="text-slate-300">Frete</dt><dd className="numeric">{audit ? brl(audit.shipping_fee) : row.quote?.shipping_fee == null ? "Não confirmado" : brl(row.quote.shipping_fee)}</dd></div><div className="flex justify-between"><dt className="text-slate-300">Taxas adicionais</dt><dd className="numeric">{audit?.additional_cost_total == null ? "Não confirmadas" : brl(audit.additional_cost_total)}</dd></div>{audit?.additional_costs?.map((cost, i) => <div key={i} className="flex justify-between text-xs text-slate-400"><dt>{cost.description}</dt><dd>{brl(cost.amount)}</dd></div>)}<div className="flex justify-between border-t border-white/10 pt-4 text-lg font-semibold"><dt>Total negociado</dt><dd className="numeric text-blue-200">{brl(audit?.final_tco ?? row.quote?.final_tco)}</dd></div></dl></section>

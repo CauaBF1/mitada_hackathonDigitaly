@@ -83,11 +83,19 @@ async function dashboard() {
   } });
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(request.nextUrl.hostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
+  if (!["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(request.nextUrl.hostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
   const origin = request.headers.get("origin");
   if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
   const endpoint = (await context.params).path.join("/");
   if (request.method === "GET" && endpoint === "godmode/dashboard") return dashboard();
+
+  if (request.method === "GET" && /^history(?:\/[0-9a-f-]{36})?$/i.test(endpoint)) {
+    try {
+      const response = await upstream(`${endpoint}${request.nextUrl.search}`);
+      if (response.status === 404) return json({ detail: "Solicitação não encontrada." }, 404);
+      return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch { return json({ detail: "Histórico temporariamente indisponível. Tente novamente." }, 503); }
+  }
 
   const chat = endpoint.match(/^chat\/([0-9a-f-]{36})$/i);
   if (request.method === "GET" && chat) {
@@ -108,6 +116,22 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     if (!response.ok) return new NextResponse(await response.text(), { status: response.status });
     return json(asRun(await response.json()), response.status);
   }
+  const mutation = endpoint.match(/^requests?\/([0-9a-f-]{36})(\/repeat)?$/i);
+  if (mutation && ((request.method === "DELETE" && !mutation[2]) || (request.method === "POST" && mutation[2]))) {
+    let body: unknown = {};
+    if (request.method === "POST") {
+      try { const text = await request.text(); body = text.trim() ? JSON.parse(text) : {}; }
+      catch { return json({ detail: "Corpo JSON inválido." }, 400); }
+    }
+    try {
+      const response = await upstream(`requests/${mutation[1]}${mutation[2] || ""}`, {
+        method: request.method, ...(request.method === "POST" ? { body: JSON.stringify(body) } : {}),
+      });
+      const result = await response.json();
+      if (!response.ok) return json({ detail: typeof result.message === "string" ? result.message : "Não foi possível concluir a ação." }, response.status);
+      return json(request.method === "POST" ? asRun(result) : result, response.status);
+    } catch { return json({ detail: "Serviço de solicitações indisponível. Tente novamente." }, 503); }
+  }
   const decision = endpoint.match(/^request\/([0-9a-f-]{36})\/decision$/i);
   if (request.method === "POST" && decision) {
     const response = await upstream(`requests/${decision[1]}/decision`, { method: "POST", body: await request.text() });
@@ -126,3 +150,4 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
 }
 export const GET = proxy;
 export const POST = proxy;
+export const DELETE = proxy;
