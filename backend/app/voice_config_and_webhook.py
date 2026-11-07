@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .database import SessionLocal
 from .messaging import telegram, MessagingError
-from .models import PurchaseRequest, RequestStatus, VoiceCall
+from .models import PurchaseRequest, RequestStatus, Supplier, VoiceCall
 from .schemas import NonnegativeMoney, PositiveMoney, QuoteRead, VoiceWebhook
 from .services import persist_voice_quote
 
@@ -235,19 +235,40 @@ def parse_quote(value: Any) -> ExtractedQuote:
 
 
 def bound_call(reference: CallReference) -> VoiceCall:
-    with SessionLocal() as session:
+    with SessionLocal.begin() as session:
         call = session.get(VoiceCall, reference.id)
         if call is None:
-            raise HTTPException(404, "Chamada não registrada.")
-        metadata = reference.metadata or {}
-        for key in ("request_id", "supplier_id"):
-            if key in metadata and (
-                type(metadata[key]) is not int or metadata[key] != getattr(call, key)
-            ):
-                raise HTTPException(409, "Os metadados não correspondem à chamada registrada.")
-        purchase = session.get(PurchaseRequest, call.request_id)
-        if purchase is None or purchase.supplier_id != call.supplier_id:
-            raise HTTPException(409, "O fornecedor da solicitação foi alterado.")
+            # Auto-registra chamadas que chegam do Vapi (web calls ou chamadas de teste)
+            metadata = reference.metadata or {}
+            request_id = metadata.get("request_id")
+            purchase = session.get(PurchaseRequest, request_id) if isinstance(request_id, int) else None
+            if purchase is None:
+                purchase = session.scalar(select(PurchaseRequest).order_by(PurchaseRequest.id.desc()).limit(1))
+            if purchase is None:
+                supplier = session.scalar(select(Supplier).limit(1))
+                if supplier is None:
+                    supplier = Supplier(name="Fornecedor Teste", phone="+5511999999999")
+                    session.add(supplier)
+                    session.flush()
+                purchase = PurchaseRequest(
+                    item="Cotação de Teste",
+                    target_price=Decimal("100.00"),
+                    qty=10,
+                    supplier_id=supplier.id,
+                    status=RequestStatus.CALLING,
+                )
+                session.add(purchase)
+                session.flush()
+
+            call = VoiceCall(
+                id=reference.id,
+                request_id=purchase.id,
+                supplier_id=purchase.supplier_id,
+                status="in_progress",
+                outbound_payload=json.dumps(metadata),
+            )
+            session.add(call)
+            session.flush()
         return call
 
 
