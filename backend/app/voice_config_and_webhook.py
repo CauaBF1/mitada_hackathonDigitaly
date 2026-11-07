@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from copy import deepcopy
 from decimal import Decimal
@@ -6,7 +7,8 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -14,9 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import settings
 from .database import SessionLocal
+from .messaging import telegram, MessagingError
 from .models import PurchaseRequest, RequestStatus, VoiceCall
 from .schemas import NonnegativeMoney, PositiveMoney, QuoteRead, VoiceWebhook
 from .services import persist_voice_quote
+
+logger = logging.getLogger(__name__)
 
 
 TOOL_NAME = "submit_procurement_quote"
@@ -385,14 +390,159 @@ def verify_webhook_secret(
         raise HTTPException(401, "Credencial de webhook inválida.")
 
 
+# ---------------------------------------------------------------------------
+# Disparo real de chamada Vapi (outbound call)
+# ---------------------------------------------------------------------------
+
+class OutboundCallRequest(BaseModel):
+    """Payload recebido pela rota POST /voice/call."""
+    model_config = ConfigDict(extra="forbid")
+    request_id: int = Field(gt=0)
+    phone_number: str = Field(min_length=8, max_length=20, pattern=r"^\+\d{7,19}$")
+    supplier_name: str = Field(min_length=1, max_length=200)
+    item: str = Field(min_length=1, max_length=300)
+    target_price: str = Field(min_length=1, max_length=30)
+    qty: int = Field(gt=0)
+    supplier_memory: str = Field(default="", max_length=4000)
+    assistant_id: str | None = None
+    phone_number_id: str | None = None
+
+
+class OutboundCallResponse(BaseModel):
+    call_id: str
+    status: str
+    provider: str
+
+
+async def trigger_vapi_call(payload: OutboundCallRequest) -> OutboundCallResponse:
+    """Dispara a ligação duplex via API REST do Vapi."""
+    api_key = settings.vapi_api_key
+    if not api_key:
+        raise HTTPException(503, "VAPI_API_KEY não configurada. Configure no .env do backend.")
+
+    assistant_id = payload.assistant_id or settings.vapi_assistant_id
+    phone_number_id = payload.phone_number_id or settings.vapi_phone_number_id
+    if not assistant_id or not phone_number_id:
+        raise HTTPException(503, "VAPI_ASSISTANT_ID e VAPI_PHONE_NUMBER_ID são obrigatórios.")
+
+    purchase_context = json.dumps({
+        "item": payload.item,
+        "target_price": payload.target_price,
+        "requested_qty": payload.qty,
+        "currency": "BRL",
+        "supplier_name": payload.supplier_name,
+        "supplier_memory": payload.supplier_memory,
+    }, ensure_ascii=False)
+
+    vapi_body: dict[str, Any] = {
+        "assistantId": assistant_id,
+        "phoneNumberId": phone_number_id,
+        "customer": {"number": payload.phone_number},
+        "metadata": {"request_id": payload.request_id},
+        "assistantOverrides": {
+            "variableValues": {"purchase_context": purchase_context},
+        },
+    }
+
+    # Adiciona URL do webhook server se configurada
+    if settings.vapi_webhook_url:
+        vapi_body["assistantOverrides"]["server"] = {"url": settings.vapi_webhook_url}
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
+                "https://api.vapi.ai/call/phone",
+                headers={
+                    "Authorization": f"Bearer {api_key.get_secret_value()}",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(vapi_body),
+            )
+        body = response.json()
+        if response.status_code not in (200, 201):
+            detail = body.get("message") or body.get("error") or f"HTTP {response.status_code}"
+            raise HTTPException(502, f"Vapi recusou a chamada: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Falha ao contatar Vapi: {exc}") from exc
+
+    return OutboundCallResponse(
+        call_id=body.get("id", "unknown"),
+        status=body.get("status", "queued"),
+        provider="vapi",
+    )
+
+
+async def _send_telegram_followup(request_id: int, supplier_name: str, quote: QuoteRead) -> None:
+    """Envia mensagem Telegram de follow-up após a ligação ser concluída com cotação."""
+    if not settings.telegram_bot_token:
+        logger.info("Telegram não configurado; pulando follow-up pós-chamada.")
+        return
+
+    # Busca o chat_id associado à request via telegram_outbound ou TELEGRAM_ALLOWED_CHAT_IDS
+    # Usamos o send_message do agent quando disponível; aqui chamamos direto via messaging.telegram
+    try:
+        from .messaging import telegram as send_tg  # noqa: PLC0415
+        text = (
+            f"✅ Ligação concluída com {supplier_name}!\n\n"
+            f"Cotação registrada:\n"
+            f"• Preço unitário: R$ {quote.final_price}\n"
+            f"• Economia: R$ {quote.savings_achieved}\n"
+            f"• Prazo: {quote.delivery_time}\n"
+            f"• Estoque disponível: {quote.available_qty} un.\n"
+            f"• Condições: {quote.conditions}\n\n"
+            f"Acesse o painel para revisar e tomar a decisão de compra."
+        )
+        # Encaminha para todos os chats autorizados no banco (reutiliza lógica existente)
+        from .database import SessionLocal as _session, ChatMessage  # noqa: PLC0415
+        with _session() as db:
+            chats = list(db.scalars(
+                select(ChatMessage.chat_id).where(
+                    ChatMessage.request_id == request_id,
+                    ChatMessage.sender_type == "AI",
+                    ChatMessage.delivery_status == "sent",
+                ).distinct()
+            ))
+        for chat_id in chats:
+            try:
+                await send_tg("sendMessage", {"chat_id": chat_id, "text": text[:4096]})
+                logger.info("Follow-up Telegram enviado para chat %s após chamada (request %s).", chat_id, request_id)
+            except MessagingError as exc:
+                logger.warning("Falha ao enviar follow-up Telegram: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Erro inesperado no follow-up Telegram: %s", exc)
+
+
 router = APIRouter(tags=["voice"])
 
 
 @router.post("/webhook/voice", response_model=None, dependencies=[Depends(verify_webhook_secret)])
-async def voice_webhook(payload: VoiceWebhook | VapiEnvelope):
+async def voice_webhook(payload: VoiceWebhook | VapiEnvelope, background_tasks: BackgroundTasks):
     if isinstance(payload, VoiceWebhook):
         return await run_in_threadpool(persist_voice_quote, payload)
-    return await run_in_threadpool(handle_vapi_event, payload)
+    result = await run_in_threadpool(handle_vapi_event, payload)
+    # Após end-of-call-report bem-sucedido com cotação, dispara follow-up no Telegram
+    if isinstance(payload, VapiEnvelope) and payload.message.type == "end-of-call-report":
+        quote = result.get("quote")
+        request_id = result.get("request_id")
+        if quote and request_id:
+            with SessionLocal() as db:
+                call = db.get(VoiceCall, result.get("call_id"))
+                supplier = db.get(
+                    __import__("app.models", fromlist=["Supplier"]).Supplier,
+                    call.supplier_id,
+                ) if call else None
+                supplier_name = supplier.name if supplier else "Fornecedor"
+            quote_read = QuoteRead.model_validate(quote)
+            background_tasks.add_task(
+                _send_telegram_followup, request_id, supplier_name, quote_read
+            )
+    return result
+
+
+@router.post("/voice/call", response_model=OutboundCallResponse, status_code=201)
+async def initiate_call(payload: OutboundCallRequest):
+    """Dispara uma ligação duplex de voz via Vapi para o número do fornecedor."""
+    return await trigger_vapi_call(payload)
 
 
 def export_voice_configs(directory: Path, server_url: str | None = None, credential_id: str | None = None, structured_output_id: str | None = None) -> None:

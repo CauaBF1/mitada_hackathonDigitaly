@@ -68,5 +68,11 @@ class Settings(BaseSettings):
     tavily_api_key: SecretStr | None = None
     search_credentials_path: Path = Path('.local/search_credentials.json')
 
+    # Vapi — agente de voz duplex
+    vapi_api_key: SecretStr | None = None
+    vapi_assistant_id: str = ""
+    vapi_phone_number_id: str = ""
+    vapi_webhook_url: str = ""  # URL pública HTTPS do /webhook/voice para o Vapi chamar
+
 
 settings = Settings()
