@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .agent_intelligence import ConversationTerms, conversation_intelligence, discovery_intelligence, memory_intelligence, negotiator_intelligence, parse_quote_intelligence
 from .config import settings
 from .scraper_tools import MarketScraper, Reputation, discover_market
+from .routers.voice_webhook import router as voice_router
 
 
 class TaskRequest(BaseModel):
@@ -385,6 +386,7 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="Nexo internal agents", lifespan=lifespan)
+app.include_router(voice_router)
 
 
 @app.get("/health")

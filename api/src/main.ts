@@ -56,6 +56,56 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
   private async openingMessage(id:string){const req=db.prepare('SELECT product,qty,destination FROM requests WHERE id=?').get(id) as any;if(!req)return '';const history=db.prepare("SELECT sender_type,content FROM conversation_messages WHERE request_id=? AND channel='telegram' ORDER BY created_at DESC LIMIT 12").all(id).reverse();const missing_fields=['supplier','unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'];try{const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/conversation-turn`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({product:req.product,qty:req.qty,destination:req.destination,message:`Solicite uma cotação de ${req.product} para ${req.qty} unidades, com entrega em ${req.destination}.`,history,phase:'opening',terms:null,missing_fields}),signal:AbortSignal.timeout(35000)});if(!response.ok)throw new Error('opening unavailable');const result:any=await response.json();if(typeof result.reply==='string'&&result.reply.trim())return result.reply.trim();}catch{}return `Olá! Você pode cotar ${req.product}, ${req.qty} unidades, para entrega em ${req.destination}? Por favor, informe preço unitário, frete, taxas, prazo, disponibilidade e condições.`;}
   async contactSupplier(id:string,key?:string){const req=this.get(id);if(req.status==='decidida'&&!(this.purchaseSimulationRow(id) as any)?.status)throw new BadRequestException('Solicitação encerrada.');if(key&&(key.length>200||key.length<1))throw new BadRequestException('Idempotency-Key inválida.');if(key){const cached=db.prepare('SELECT result FROM contact_idempotency WHERE request_id=? AND idempotency_key=?').get(id,key) as any;if(cached)return JSON.parse(cached.result);}const allowed=(process.env.TELEGRAM_ALLOWED_CHAT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);if(!process.env.TELEGRAM_BOT_TOKEN||!allowed.length)throw new BadRequestException('Contato Telegram não está configurado.');const known=db.prepare('SELECT DISTINCT chat_id FROM telegram_outbound WHERE request_id=?').all(id).map((x:any)=>String(x.chat_id));const chats=known.length===1?known:known.length>1?[]:allowed.length===1?allowed:[];if(!chats.length)throw new BadRequestException('Informe uma conversa de fornecedor específica; há mais de um chat autorizado.');const text=await this.openingMessage(id);let sent=true;for(const chat of chats){const deliveryId=randomUUID();db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,error,created_at,message_text) VALUES(?,?,?,'sending',NULL,?,?)").run(deliveryId,id,chat,new Date().toISOString(),text);sent=!!(await this.sendTelegram(deliveryId,id,chat,text))&&sent;}const result={ok:sent,request_id:id,status:sent?'sent':'uncertain'};if(key)db.prepare('INSERT OR IGNORE INTO contact_idempotency VALUES(?,?,?,?)').run(id,key,JSON.stringify(result),new Date().toISOString());return result;}
 
+  /**
+   * Fluxo duplex: (1) liga para o fornecedor via Vapi, (2) envia mensagem Telegram de seguimento.
+   * O follow-up Telegram acontece automaticamente via webhook Vapi → agent Python após a ligação.
+   * Este endpoint só dispara a chamada; o Telegram é gerenciado pelo hook pós-chamada no backend Python.
+   */
+  async callSupplier(id: string, body: any) {
+    const req = this.get(id);
+    if (req.status === 'decidida') throw new BadRequestException('Solicitação decidida não pode iniciar chamada.');
+    const phone: string = body?.phone_number || '';
+    if (!phone || !/^\+\d{7,19}$/.test(phone)) throw new BadRequestException('Informe phone_number no formato internacional: +5511999999999');
+    const agentUrl = process.env.AGENT_URL || 'http://agents:8000';
+    const response = await fetch(`${agentUrl}/voice/call`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${process.env.INTERNAL_API_TOKEN || ''}` },
+      body: JSON.stringify({
+        request_id: id,
+        phone_number: phone,
+        supplier_name: body?.supplier_name || 'Fornecedor',
+        item: req.product,
+        target_price: body?.target_price || '0',
+        qty: req.qty,
+        supplier_memory: body?.supplier_memory || '',
+        assistant_id: body?.assistant_id || undefined,
+        phone_number_id: body?.phone_number_id || undefined,
+      }),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (!response.ok) {
+      const err: any = await response.json().catch(() => ({}));
+      throw new BadRequestException(`Falha ao iniciar chamada: ${err?.detail || err?.message || response.status}`);
+    }
+    const callResult: any = await response.json();
+    // Depois que a ligação terminar, o backend Python dispara o follow-up Telegram automaticamente via webhook Vapi.
+    // Aqui registramos a notificação inicial sobre a ligação sendo iniciada.
+    void this.telegramNotifyCall(id, req.product, phone);
+    return { ok: true, call: callResult, request_id: id };
+  }
+
+  private async telegramNotifyCall(requestId: string, product: string, phone: string) {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chats = (process.env.TELEGRAM_ALLOWED_CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!token || !chats.length) return;
+    const text = `📞 Ligando para o fornecedor sobre "${product}" (${phone}). Aguarde o relatório após a chamada.`;
+    for (const chat of chats) {
+      const deliveryId = randomUUID();
+      db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,error,created_at,message_text) VALUES(?,?,?,'sending',NULL,?,?)").run(deliveryId, requestId, chat, new Date().toISOString(), text);
+      await this.sendTelegram(deliveryId, requestId, chat, text);
+    }
+  }
+
   get(id: string) { const r = db.prepare('SELECT * FROM requests WHERE id=?').get(id) as any; if (!r) throw new NotFoundException('Solicitação não encontrada'); return this.expand(r); }
   private exists(id: string) { return id === 'system' || !!db.prepare('SELECT 1 FROM requests WHERE id=?').get(id); }
   remove(id: string) {
@@ -240,6 +290,8 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
   @Get('requests/:id') detail(@Param('id') id:string){return this.b.get(id);}
   @Get('requests/:id/messages') messages(@Param('id') id:string){return this.b.messages(id);}
   @Post('requests/:id/contact-supplier') contact(@Param('id') id:string,@Headers('idempotency-key') key?:string){return this.b.contactSupplier(id,key);}
+  /** Fluxo duplex: (1) liga via Vapi → (2) follow-up Telegram automático pós-chamada */
+  @Post('requests/:id/call-supplier') callSupplier(@Param('id') id:string,@Body() body:any){return this.b.callSupplier(id,body);}
   @Post('requests/:id/quotes') quote(@Param('id') id:string,@Body() body:any){return this.b.addQuote(id,body);}
   @Post('requests/:id/decision') decision(@Param('id') id:string,@Body() body:any,@Headers('idempotency-key') key?:string){return this.b.decide(id,body,key);}
   @Post('requests/:id/market-preference') marketPreference(@Param('id') id:string,@Body() body:any){return this.b.marketPreference(id,body);}

@@ -18,6 +18,7 @@ from .search_provider import router as search_router
 from .messaging import router as messaging_router, telegram, MessagingError
 from .agent import router as agent_router, build_graph, worker
 from .local_access import LocalAccess
+from .routers.voice_webhook import router as voice_router
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
@@ -79,6 +80,7 @@ app.include_router(read_router)
 app.include_router(agent_router)
 app.include_router(messaging_router)
 app.include_router(search_router)
+app.include_router(voice_router)
 
 
 @app.get('/health')
