@@ -1,6 +1,6 @@
 # Nexo · Inteligência de compras
 
-Aplicação para registrar solicitações, pesquisar referências públicas, comparar propostas e apoiar uma decisão humana. A base funcional elegível de `hackathon_digitally_priv` foi incorporada; seu original permanece intocado. A arquitetura ativa separa negócio, agentes e interface em três serviços:
+Aplicação para registrar solicitações, pesquisar referências públicas, comparar propostas e apoiar uma decisão humana.
 
 - **API NestJS** (`api/`): REST, SQLite de negócio, propostas, decisão humana e webhook Telegram.
 - **Agentes Python** (`backend/app/agent_service.py`): LangGraph, pesquisa/parsing reaproveitados e checkpoints SQLite isolados. Não escreve no banco de negócio; devolve resultados por callback à API Nest.
