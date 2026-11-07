@@ -1,6 +1,6 @@
 # Nexo · Inteligência de compras
 
-Aplicação para registrar solicitações, pesquisar referências públicas, comparar propostas e apoiar uma decisão humana. A base funcional elegível de `hackathon_digitally_priv` foi incorporada; seu original permanece intocado. A arquitetura ativa separa negócio, agentes e interface em três serviços:
+Aplicação para registrar solicitações, pesquisar referências públicas, comparar propostas e apoiar uma decisão humana.
 
 - **API NestJS** (`api/`): REST, SQLite de negócio, propostas, decisão humana e webhook Telegram.
 - **Agentes Python** (`backend/app/agent_service.py`): LangGraph, pesquisa/parsing reaproveitados e checkpoints SQLite isolados. Não escreve no banco de negócio; devolve resultados por callback à API Nest.
@@ -68,3 +68,9 @@ Os módulos históricos de voz em Python usam outro modelo de dados e não são 
 ## WhatsApp e fallback de voz
 
 Configuração da Evolution API v2, QR Code, webhooks e exemplos de teste com `curl`: [docs/whatsapp.md](docs/whatsapp.md).
+
+## Histórico operacional
+
+A aba **Histórico** reúne solicitações, propostas, decisões e conversas persistidas. Acesse `/history` no frontend. Contratos, limitações das datas antigas e testes: [docs/historico.md](docs/historico.md).
+
+Exclusão e repetição de compras: consulte [Ações de solicitações](docs/acoes-solicitacoes.md) para contratos, comportamento e testes.

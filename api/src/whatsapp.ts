@@ -140,6 +140,7 @@ export class WhatsAppService {
     const parent = data.message?.extendedTextMessage?.contextInfo?.stanzaId;
     let mapping: any = typeof parent === 'string' ? this.db.prepare(`SELECT c.* FROM whatsapp_contacts c JOIN whatsapp_delivery d
       ON d.request_id=c.request_id AND d.number=c.number WHERE c.number=? AND d.message_id=?`).get(number, parent) : null;
+    if (typeof parent === 'string' && !mapping) return { ok: true, ignored: 'unknown-reply' };
     if (!mapping) {
       const open = this.db.prepare(`SELECT c.* FROM whatsapp_contacts c JOIN requests r ON r.id=c.request_id
         WHERE c.number=? AND r.status<>'decidida' AND EXISTS(SELECT 1 FROM whatsapp_delivery d WHERE d.request_id=c.request_id AND d.number=c.number AND d.status IN ('sent','uncertain','sending'))`).all(number) as any[];
@@ -153,7 +154,7 @@ export class WhatsAppService {
         VALUES(?,?,?,'SUPPLIER',?,'whatsapp',?,?)`).run(`wa:${updateId}`, mapping.request_id, number, text.trim(), externalId, now());
     })();
     await this.process(updateId);
-    return { ok: true, status: (this.db.prepare('SELECT status FROM whatsapp_updates WHERE id=?').get(updateId) as any).status };
+    return { ok: true, status: (this.db.prepare('SELECT status FROM whatsapp_updates WHERE id=?').get(updateId) as any)?.status || 'deleted' };
   }
 
   pump() {
@@ -184,6 +185,8 @@ export class WhatsAppService {
         });
         if (!response.ok) throw new Error('Interpretação indisponível');
         const parsed: any = await response.json();
+        // Deletion can happen while interpretation is in flight. Never recreate auxiliary state.
+        this.getRequest(req.id);
         const prefix = `whatsapp:${digest(row.number)}:`;
         const state = this.db.prepare('SELECT state FROM whatsapp_quote_state WHERE request_id=? AND number=?').get(req.id, row.number) as any;
         const prior = state ? JSON.parse(state.state) : null;
@@ -207,6 +210,7 @@ export class WhatsAppService {
       this.db.prepare("UPDATE whatsapp_updates SET status=? WHERE id=?").run(sent.ok ? 'processed' : 'exhausted', id);
     } catch {
       const saved = this.db.prepare('SELECT answer FROM whatsapp_updates WHERE id=?').get(id) as any;
+      if (!saved) return;
       this.db.prepare('UPDATE whatsapp_updates SET status=?,retry_after=? WHERE id=?').run(row.attempts + 1 >= 3 ? 'exhausted' : (saved.answer ? 'ready' : 'pending'), new Date(Date.now() + 10000).toISOString(), id);
       this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('WhatsApp: processamento pendente; até 3 tentativas automáticas.', row.request_id);
     } finally { this.active.delete(lock); }
