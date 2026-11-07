@@ -60,6 +60,7 @@ payload = {
     "metadata": {"test": True},
     "assistantOverrides": {
         "variableValues": {"purchase_context": purchase_context},
+        "firstMessage": f"Olá! Sou o assistente de inteligência artificial de compras da Nexo. Gostaria de cotar {item}, para uma quantidade de 10 unidades. Poderia me informar o preço unitário e as condições?",
     },
 }
 

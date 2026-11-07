@@ -462,6 +462,7 @@ async def trigger_vapi_call(payload: OutboundCallRequest) -> OutboundCallRespons
         "metadata": {"request_id": payload.request_id},
         "assistantOverrides": {
             "variableValues": {"purchase_context": purchase_context},
+            "firstMessage": f"Olá! Sou o assistente de inteligência artificial de compras da Nexo. Gostaria de cotar {payload.item}, para uma quantidade de {payload.qty} unidades. Poderia me informar o preço unitário e as condições?",
         },
     }
 
