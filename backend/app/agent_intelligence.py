@@ -221,9 +221,11 @@ async def invoke_structured(model, schema, prompt, data):
     options = {"model": model, "api_key": key.get_secret_value(), "temperature": 0, "timeout": 30, "max_retries": 1}
     if provider == "gemini":
         llm = ChatGoogleGenerativeAI(**options, max_output_tokens=2200)
+        method = "json_schema"
     else:
         llm = ChatGroq(**options, max_tokens=2200)
-    result = await llm.with_structured_output(schema, method='function_calling').ainvoke([
+        method = "function_calling"
+    result = await llm.with_structured_output(schema, method=method).ainvoke([
         ('system', prompt), ('human', json.dumps(data, ensure_ascii=False, default=str)),
     ])
     return result if isinstance(result, schema) else schema.model_validate(result)

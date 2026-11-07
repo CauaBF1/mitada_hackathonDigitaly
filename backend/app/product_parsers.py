@@ -62,4 +62,19 @@ def html_product_nodes(soup: BeautifulSoup, url: str):
                 if match:
                     price = match[1].replace('.', '').replace(',', '.')
                     nodes.append({'@type': 'Product', 'name': title.get_text(' ', strip=True), 'url': url, 'offers': {'@type': 'Offer', 'price': price, 'priceCurrency': 'BRL', 'availability': 'InStock', 'url': url}, '_extraction_method': 'merchant_html/kalunga.product_cash_price', '_price_basis': 'Preço à vista publicado no painel do produto; frete e estoque para a quantidade sujeitos à confirmação.'})
+
+    if (urlsplit(url).hostname or '').lower() in {'amazon.com.br', 'www.amazon.com.br'} and re.search(r'/(?:dp|gp/product)/[A-Z0-9]{10}', urlsplit(url).path):
+        title = soup.select_one('#productTitle')
+        avail_el = soup.select_one('#availability')
+        avail_text = avail_el.get_text(' ', strip=True) if avail_el else ''
+        in_stock = bool(re.search(r'em estoque|dispon[ií]vel', avail_text, re.I)) and not bool(re.search(r'indispon[ií]vel|esgotado|fora de estoque', avail_text, re.I))
+        price_el = soup.select_one('#corePriceDisplay_desktop_feature_div .priceToPay, #corePrice_feature_div .apex-pricetopay-value')
+        if title is not None and in_stock and price_el is not None:
+            whole = price_el.select_one('.a-price-whole')
+            fraction = price_el.select_one('.a-price-fraction')
+            if whole is not None and fraction is not None:
+                raw_whole = re.sub(r'[^\d]', '', whole.get_text(strip=True))
+                raw_frac = re.sub(r'[^\d]', '', fraction.get_text(strip=True))
+                if raw_whole and len(raw_frac) == 2:
+                    nodes.append({'@type': 'Product', 'name': title.get_text(' ', strip=True), 'url': url, 'offers': {'@type': 'Offer', 'price': f'{raw_whole}.{raw_frac}', 'priceCurrency': 'BRL', 'availability': 'InStock', 'url': url}, '_extraction_method': 'merchant_html/amazon.priceToPay'})
     return nodes

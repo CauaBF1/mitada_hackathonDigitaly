@@ -136,6 +136,18 @@ def _canonical_tokens(text: str, *, expand_model_digits: bool = False) -> set[st
     return out
 
 
+def _token_matches(term: str, found: set[str]) -> bool:
+    if term in found:
+        return True
+    if len(term) >= 5 and term.isalpha():
+        from difflib import SequenceMatcher
+        return any(
+            len(candidate) >= 5 and candidate.isalpha() and SequenceMatcher(None, term, candidate).ratio() >= 0.83
+            for candidate in found
+        )
+    return False
+
+
 def same_product(query: str, title: str) -> bool:
     ignored = {"de", "da", "do", "das", "dos", "com", "para", "e", "um", "uma", "o", "a", "comprar", "preco", "polegadas", "polegada", "pol", "unidades", "unidade", "un"}
     terms = _canonical_tokens(query, expand_model_digits=False) - ignored
@@ -151,7 +163,8 @@ def same_product(query: str, title: str) -> bool:
     bundles = {'combo', 'combos', 'kit', 'conjunto'}
     if found & bundles and not (terms & bundles or {'teclado', 'mouse'} <= terms):
         return False
-    return len(terms & found) / len(terms) >= 0.8
+    matched = sum(1 for term in terms if _token_matches(term, found))
+    return matched / len(terms) >= 0.8
 
 
 def canonical_url(value: str, base: str = "") -> str:
@@ -294,7 +307,7 @@ def parse_product(html: str, url: str, query: str) -> ProductOffer:
                 continue
             if not supplier:
                 supplier = organization.get("name") or (site_name.get("content") if site_name else None)
-            if not supplier and product.get('_extraction_method'):
+            if not supplier:
                 supplier = domain(url)
             if not isinstance(supplier, str) or not supplier.strip():
                 continue
@@ -504,7 +517,13 @@ class MarketScraper:
                 result.errors.append(str(exc) or "Tempo limite da pesquisa atingido.")
                 if asyncio.get_running_loop().time() >= deadline:
                     break
-        urls = sorted(dict.fromkeys(urls), key=product_url_rank)[:60]
+        non_merchant_domains = {
+            "youtube.com", "instagram.com", "facebook.com", "tiktok.com", "twitter.com", "x.com",
+            "reddit.com", "wikipedia.org", "tudocelular.com", "tecnoblog.net", "techtudo.com.br",
+            "canaltech.com.br", "uol.com.br", "globo.com", "olhardigital.com.br", "adrenaline.com.br",
+            "promobit.com.br", "pelando.com.br", "reclameaqui.com.br", "tavily.com", "buscape.com.br", "zoom.com.br",
+        }
+        urls = [url for url in sorted(dict.fromkeys(urls), key=product_url_rank) if domain(url) not in non_merchant_domains][:60]
         result.candidates = [self.search_candidates.get(url, SearchCandidate(url=url, title=url)) for url in urls]
         if self.on_progress:
             await self.on_progress(result)
