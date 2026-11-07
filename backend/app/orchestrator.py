@@ -59,6 +59,7 @@ class PurchaseInput(Contract):
     qty: int = Field(gt=0, le=1000000, strict=True)
     target_price: PositiveMoney | None = None
     delivery_location: str | None = Field(default=None, min_length=2, max_length=200)
+    profile: str = Field(default='saude', max_length=50)
 
 
 class SupplierQuote(Contract):
@@ -131,6 +132,7 @@ class PurchaseRead(Contract):
     item: str
     qty: int
     delivery_location: str | None = None
+    profile: str = 'saude'
     tco_base: Decimal | None = None
     market_shipping: Decimal | None = None
     target_basis: Literal['complete_tco', 'product_subtotal', 'legacy_unit_price'] = 'legacy_unit_price'
@@ -234,7 +236,7 @@ def create_purchase(payload: PurchaseInput, key: str | None, enqueue: bool = Fal
             run = MarketRun(client_key=key, phase='queued', original_input=encoded, snapshot='{}')
             session.add(run)
             session.flush()
-            row = PurchaseRead(mode=payload.mode, id=run.id, item=payload.item, qty=payload.qty, delivery_location=payload.delivery_location, requested_target=payload.target_price, created_at=timestamp(), updated_at=timestamp())
+            row = PurchaseRead(mode=payload.mode, id=run.id, item=payload.item, qty=payload.qty, delivery_location=payload.delivery_location, requested_target=payload.target_price, profile=payload.profile, created_at=timestamp(), updated_at=timestamp())
             run.snapshot = row.model_dump_json()
             if enqueue:
                 session.add(AgentJob(request_id=run.id))

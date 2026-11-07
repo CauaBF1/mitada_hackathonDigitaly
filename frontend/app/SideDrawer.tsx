@@ -28,9 +28,24 @@ export default function SideDrawer({ row, close, openChat, decided }: { row: Pur
   const reputation = row?.reputations.find(r => r.supplier_domain === source?.supplier_domain);
   const audit = row?.audit;
   const profile = source ? row?.supplier_profiles?.[source.supplier_domain] : undefined;
+  const buyerProfile = row?.profile || "saude";
+  const buyerTitle = buyerProfile === "saude" ? "Mariana · Suprimentos Hospitalares" : buyerProfile === "governo" ? "Carlos · Compras Públicas" : buyerProfile === "financeiro" ? "Beatriz · Mercado Financeiro" : "Roberto · Diretor de Suprimentos";
+
   return <dialog ref={dialog} onCancel={close} onClick={event => { if (event.target === event.currentTarget) close(); }} aria-labelledby="drawer-title" className="side-drawer fixed inset-y-0 left-auto right-0 h-dvh max-h-none w-full max-w-xl border-0 bg-white p-0 text-slate-900 shadow-2xl">
     {row && <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white"><div><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-100">Inteligência da negociação · #{row.id}</p><h2 id="drawer-title" className="mt-2 text-xl font-semibold">{row.item}</h2><p className="mt-2 text-xs text-blue-100">{row.qty} unidade(s) · {row.delivery_location || "Destino a confirmar"}</p></div><button autoFocus onClick={close} aria-label="Fechar detalhes" className="rounded-lg p-2 hover:bg-white/10"><X size={20} /></button></header>
+      <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-100">Inteligência da negociação · #{row.id}</p>
+            <span className="inline-flex items-center rounded-md bg-white/20 px-2 py-0.5 text-[9px] font-bold text-white">
+              {buyerTitle}
+            </span>
+          </div>
+          <h2 id="drawer-title" className="mt-2 text-xl font-semibold">{row.item}</h2>
+          <p className="mt-2 text-xs text-blue-100">{row.qty} unidade(s) · {row.delivery_location || "Destino a confirmar"}</p>
+        </div>
+        <button autoFocus onClick={close} aria-label="Fechar detalhes" className="rounded-lg p-2 hover:bg-white/10"><X size={20} /></button>
+      </header>
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
         {row.mode === "sandbox" && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Teste no seu Telegram · resultados fora dos indicadores reais.</p>}
         {row.notice && <p role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">{row.notice}</p>}

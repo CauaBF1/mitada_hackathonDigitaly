@@ -43,8 +43,9 @@ function asRun(row: any) {
     evidence_message_ids: [], audited_at: chosen.created_at,
   } : null;
   const status = row.status === "decidida" ? "DONE" : row.status === "pesquisando" || row.status === "recebida" ? "CALLING" : quotes.length ? "NEGOTIATING" : "TODO";
+  const profile = row.profile || row.specs?.profile || "saude";
   return {
-    id: String(row.id), version: row.version, item: row.product, qty: row.qty, requested_target: null, target_price: null,
+    id: String(row.id), profile, version: row.version, item: row.product, qty: row.qty, requested_target: null, target_price: null,
     market_average: null, status, stage: row.status, sources, reputations: [], selected_product_url: chosenUrl,
     quote: chosen ? {
       additional_costs: null, initial_additional_costs: null, supplier_domain: (() => { try { return new URL(chosen.source_url).hostname.replace(/^www\./, ""); } catch { return null; } })(),
@@ -104,7 +105,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (request.method === "POST" && endpoint === "request") {
     let input: any;
     try { input = await request.json(); } catch { return json({ detail: "Corpo JSON inválido." }, 400); }
-    const response = await upstream("requests", { method: "POST", headers: request.headers.get("Idempotency-Key") ? { "Idempotency-Key": request.headers.get("Idempotency-Key")! } : {}, body: JSON.stringify({ product: input.item, specs: {}, qty: input.qty, destination: input.delivery_location }) });
+    const profile = input.profile || "saude";
+    const specs = { ...(input.specs || {}), profile };
+    const response = await upstream("requests", { method: "POST", headers: request.headers.get("Idempotency-Key") ? { "Idempotency-Key": request.headers.get("Idempotency-Key")! } : {}, body: JSON.stringify({ product: input.item, specs, qty: input.qty, destination: input.delivery_location, profile }) });
     if (!response.ok) return new NextResponse(await response.text(), { status: response.status });
     return json(asRun(await response.json()), response.status);
   }

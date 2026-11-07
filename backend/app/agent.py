@@ -38,6 +38,7 @@ class AgentState(TypedDict, total=False):
     request_id: int
     mode: Literal['live', 'sandbox']
     generation: int
+    profile: str
     item: str
     quantity: int
     delivery_location: str | None
@@ -340,10 +341,15 @@ def conversational(text):
     if not isinstance(text, str):
         return None
     text = text.strip()
-    if not text or len(text) > 600 or re.search(r'[\[\]{}<>`\n]|sandbox|solicita[çc][aã]o\s*#|^(?:roberto|assistant|system)\s*:', text, re.I):
+    if not text or len(text) > 600 or re.search(r'[\[\]{}<>`\n]|sandbox|solicita[çc][aã]o\s*#|^(?:roberto|mariana|carlos|beatriz|assistant|system)\s*:', text, re.I):
         return None
     sentences = re.split(r'(?<=[!?])\s+|(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', text)
     return text if len(sentences) <= 2 else None
+
+
+def current_agent_name(state):
+    profile = state.get('profile') or 'saude'
+    return 'Mariana' if profile in ('saude', 'mariana', 'hospitalar') else 'Roberto'
 
 
 async def compose_message(state, current, history, phase, feedback=None):
@@ -355,7 +361,8 @@ async def compose_message(state, current, history, phase, feedback=None):
     fees = sum((c.amount for c in offer.additional_costs), Decimal('0')) if offer and offer.additional_costs is not None else Decimal('0')
     unit_target = max(Decimal('0.01'), (max(Decimal('0'), target - shipping - fees) / state.get('quantity', 1)).quantize(Decimal('0.01'), rounding='ROUND_DOWN'))
     batna = batna_for(state, current['supplier']['supplier_domain'])
-    data = {'phase': phase, 'original_procurement_requirements': state.get('item'), 'item_name': current['supplier']['product_name'], 'quantity': state.get('quantity', 1), 'delivery_location': state.get('delivery_location'), 'market_price': state['average'], 'target_total': str(target), 'target_unit_price': str(unit_target), 'supplier_memory_context': current.get('profile') or current['memory'], 'conversation': history, 'confirmed_offer': current.get('last_offer'), 'batna': batna, 'round': current['round'], 'auditor_feedback': feedback, 'validated_tactical_summary': {'tco_oferta_atual': total, 'distancia_meta_pct': distance}}
+    profile = state.get('profile') or 'saude'
+    data = {'profile': profile, 'phase': phase, 'original_procurement_requirements': state.get('item'), 'item_name': current['supplier']['product_name'], 'quantity': state.get('quantity', 1), 'delivery_location': state.get('delivery_location'), 'market_price': state['average'], 'target_total': str(target), 'target_unit_price': str(unit_target), 'supplier_memory_context': current.get('profile') or current['memory'], 'conversation': history, 'confirmed_offer': current.get('last_offer'), 'batna': batna, 'round': current['round'], 'auditor_feedback': feedback, 'validated_tactical_summary': {'tco_oferta_atual': total, 'distancia_meta_pct': distance}}
     for attempt in range(2):
         draft = await negotiator_intelligence(state['model'], data)
         text = conversational(draft.mensagem_telegram)
@@ -369,7 +376,8 @@ async def compose_message(state, current, history, phase, feedback=None):
                 strategy = 'DESCONTO_VOLUME' if state.get('quantity', 1) > 1 else 'DESCONTO_UNITARIO'
             return NegotiatorResponse(raciocinio_tatico=TacticalSummary(tco_oferta_atual=total, distancia_meta_pct=distance, estrategia_aplicada=strategy), mensagem_telegram=text)
         data['format_correction'] = 'Use uma ou duas frases, sem tags, JSON, promessa de fechamento ou valores não fornecidos.'
-    raise MessagingError('Roberto não retornou uma mensagem válida. Retome a negociação para tentar novamente.')
+    name = current_agent_name(state)
+    raise MessagingError(f'{name} não retornou uma mensagem válida. Retome a negociação para tentar novamente.')
 
 
 async def remember_tactic(state, current, draft):
@@ -428,7 +436,8 @@ async def dispatch(state):
             current['state'] = 'delivery_unconfirmed'
             await log(state, 'dispatch', f'{domain}: envio não confirmado; não será repetido automaticamente.', level='error')
     active = any(n['state'] == 'waiting' for n in negotiations.values())
-    await log(state, 'negotiating' if active else 'blocked', 'Roberto aguarda respostas no Telegram.' if active else 'Nenhum fornecedor com canal de negociação disponível.', {'status': 'NEGOTIATING' if active else 'TODO', 'notice': ('Teste no Telegram pessoal; resultados fora dos indicadores reais.' if state.get('mode') == 'sandbox' else 'Negociação automática pelo Telegram.') if active else 'Cadastre contatos autorizados e configure o webhook; depois tente novamente.'})
+    name = current_agent_name(state)
+    await log(state, 'negotiating' if active else 'blocked', f'{name} aguarda respostas no Telegram.' if active else 'Nenhum fornecedor com canal de negociação disponível.', {'status': 'NEGOTIATING' if active else 'TODO', 'notice': ('Teste no Telegram pessoal; resultados fora dos indicadores reais.' if state.get('mode') == 'sandbox' else 'Negociação automática pelo Telegram.') if active else 'Cadastre contatos autorizados e configure o webhook; depois tente novamente.'})
     return {'negotiations': negotiations, 'initialized': True, 'done': not active, 'model': model}
 
 
@@ -445,7 +454,8 @@ async def respond(state, negotiations, domain, history, offer, feedback=None):
         except MessagingError:
             current['state'] = 'delivery_unconfirmed'
     done = not any(n['state'] == 'waiting' for n in negotiations.values())
-    await log(state, 'blocked' if done else 'negotiating', 'Negociações encerradas sem TCO confirmado dentro da meta.' if done else f'{domain}: Roberto avaliou preço, frete e concessões.', {'status': 'TODO' if done else 'NEGOTIATING', 'notice': 'Nenhuma cotação aceita fora da meta ou com frete desconhecido.' if done else 'Aguardando próxima resposta do fornecedor.'})
+    name = current_agent_name(state)
+    await log(state, 'blocked' if done else 'negotiating', 'Negociações encerradas sem TCO confirmado dentro da meta.' if done else f'{domain}: {name} avaliou preço, frete e concessões.', {'status': 'TODO' if done else 'NEGOTIATING', 'notice': 'Nenhuma cotação aceita fora da meta ou com frete desconhecido.' if done else 'Aguardando próxima resposta do fornecedor.'})
     return {'negotiations': negotiations, 'done': done, 'reply_id': state['reply_id'], 'pending_audit': None, 'audit_feedback': None}
 
 
@@ -662,7 +672,7 @@ async def worker(graph):
                 if snapshot.next and not is_interrupted(snapshot):
                     await graph.ainvoke(None, config)
             else:
-                await graph.ainvoke({'engine_version': 2, 'request_id': run_id, 'generation': generation, 'item': purchase.item, 'mode': purchase.mode, 'quantity': purchase.qty, 'delivery_location': purchase.delivery_location}, config)
+                await graph.ainvoke({'engine_version': 2, 'request_id': run_id, 'generation': generation, 'item': purchase.item, 'mode': purchase.mode, 'quantity': purchase.qty, 'delivery_location': purchase.delivery_location, 'profile': getattr(purchase, 'profile', 'saude')}, config)
             snapshot = await graph.aget_state(config)
             def success():
                 with SessionLocal.begin() as db:
@@ -700,6 +710,7 @@ class NewPurchase(BaseModel):
     item: str = Field(min_length=3, max_length=300)
     qty: int = Field(default=1, ge=1, le=1000000, strict=True)
     delivery_location: str | None = Field(default=None, min_length=2, max_length=200)
+    profile: str = Field(default='saude', max_length=50)
 
     _destination = field_validator('delivery_location')(validate_destination)
 
@@ -720,7 +731,7 @@ async def create(payload: NewPurchase, idempotency_key: str | None = Header(defa
             personal_telegram_chat_id()
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-    return await run_in_threadpool(create_purchase, PurchaseInput(item=payload.item, qty=payload.qty, mode=payload.mode, delivery_location=payload.delivery_location), idempotency_key, True)
+    return await run_in_threadpool(create_purchase, PurchaseInput(item=payload.item, qty=payload.qty, mode=payload.mode, delivery_location=payload.delivery_location, profile=payload.profile), idempotency_key, True)
 
 
 

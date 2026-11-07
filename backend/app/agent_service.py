@@ -143,11 +143,12 @@ async def parse_node(state: TaskState):
 
 async def analysis_node(state: TaskState):
     notes = dict(state.get("agent_notes", {}))
+    profile = state.get("specs", {}).get("profile", "saude")
     if settings.active_llm_api_key:
         calls = (
-            ("market_discovery", discovery_intelligence, {"item": state["product"], "quantity": state["qty"], "destination": state["destination"], "offers": state.get("quotes", []), "reputations": []}, "discovery_justification"),
-            ("commercial_memory", memory_intelligence, {"supplier_history": [], "statistics": {}, "scope": "business"}, "tactical_briefing"),
-            ("quote_request_message", negotiator_intelligence, {"item": state["product"], "specifications": state.get("specs", {}), "quantity": state["qty"], "destination": state["destination"], "confirmed_quotes": state.get("quotes", []), "target_total": None, "history": []}, "mensagem_telegram"),
+            ("market_discovery", discovery_intelligence, {"item": state["product"], "quantity": state["qty"], "destination": state["destination"], "offers": state.get("quotes", []), "reputations": [], "profile": profile}, "discovery_justification"),
+            ("commercial_memory", memory_intelligence, {"supplier_history": [], "statistics": {}, "scope": "business", "profile": profile}, "tactical_briefing"),
+            ("quote_request_message", negotiator_intelligence, {"item": state["product"], "specifications": state.get("specs", {}), "profile": profile, "quantity": state["qty"], "destination": state["destination"], "confirmed_quotes": state.get("quotes", []), "target_total": None, "history": []}, "mensagem_telegram"),
         )
         for name, invoke, data, attr in calls:
             try:

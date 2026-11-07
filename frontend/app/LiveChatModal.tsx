@@ -5,11 +5,14 @@ import { X } from "lucide-react";
 import { requestJson } from "./contracts";
 
 interface ChatMessage { id: string; request_id: string; supplier_domain: string; sender_type: "AI" | "SUPPLIER"; text: string; timestamp: string; delivery_status: string }
-export default function LiveChatModal({ requestId, sandbox, close }: { requestId: string | null; sandbox: boolean; close: () => void }) {
+export default function LiveChatModal({ requestId, sandbox, profile, close }: { requestId: string | null; sandbox: boolean; profile?: string; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState("");
+  const isSaude = (profile || "saude") === "saude";
+  const agentName = isSaude ? "Mariana" : profile === "governo" ? "Carlos" : profile === "financeiro" ? "Beatriz" : "Roberto";
+
   useEffect(() => {
     if (requestId === null) { dialog.current?.close(); return; }
     dialog.current?.showModal(); setMessages([]); setError("");
@@ -32,10 +35,10 @@ export default function LiveChatModal({ requestId, sandbox, close }: { requestId
     return () => { disposed = true; clearInterval(timer); controller?.abort(); };
   }, [requestId]);
   return <dialog ref={dialog} onCancel={close} aria-labelledby="chat-title" className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl border-0 bg-white p-0 text-slate-900 shadow-2xl">
-    <header className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white"><div><h2 id="chat-title" className="font-semibold">{sandbox ? "SANDBOX" : "Negociação"} #{requestId} · Telegram</h2><p className="mt-1 text-xs text-blue-100">Roberto × fornecedores · atualização a cada 3 segundos</p></div><button onClick={close} aria-label="Fechar conversa" className="rounded-lg p-2 hover:bg-white/10"><X size={18} /></button></header>
+    <header className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white"><div><h2 id="chat-title" className="font-semibold">{sandbox ? "SANDBOX" : "Negociação"} #{requestId} · Telegram</h2><p className="mt-1 text-xs text-blue-100">{agentName} × fornecedores · atualização a cada 3 segundos</p></div><button onClick={close} aria-label="Fechar conversa" className="rounded-lg p-2 hover:bg-white/10"><X size={18} /></button></header>
     {error && <p role="alert" className="p-3 text-xs text-amber-700">{error} As mensagens recebidas permanecem visíveis.</p>}
     <div ref={scroll} role="log" aria-label="Conversa com fornecedores" aria-live="polite" aria-relevant="additions" className="h-[55vh] space-y-4 overflow-y-auto bg-slate-50 p-5">
-      {messages.map(message => <div key={message.id} className={`flex ${message.sender_type === "AI" ? "justify-start" : "justify-end"}`}><article className={`max-w-[88%] rounded-2xl px-4 py-3 ${message.sender_type === "AI" ? "rounded-tl-sm bg-blue-600 text-white" : "rounded-tr-sm bg-slate-200 text-slate-800"}`}><p className="mb-2 break-all text-[10px] font-semibold opacity-80">{message.sender_type === "AI" ? "Roberto → " : (sandbox ? "Você como fornecedor · " : "Fornecedor · ")}{message.supplier_domain}</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p><p className="mt-2 text-[9px] opacity-70">{new Date(message.timestamp).toLocaleString("pt-BR")} · {({ sent: "Enviada", received: "Recebida", sending: "Enviando", unconfirmed: "Envio não confirmado" } as Record<string, string>)[message.delivery_status] || message.delivery_status}</p></article></div>)}
+      {messages.map(message => <div key={message.id} className={`flex ${message.sender_type === "AI" ? "justify-start" : "justify-end"}`}><article className={`max-w-[88%] rounded-2xl px-4 py-3 ${message.sender_type === "AI" ? "rounded-tl-sm bg-blue-600 text-white" : "rounded-tr-sm bg-slate-200 text-slate-800"}`}><p className="mb-2 break-all text-[10px] font-semibold opacity-80">{message.sender_type === "AI" ? `${agentName} → ` : (sandbox ? "Você como fornecedor · " : "Fornecedor · ")}{message.supplier_domain}</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p><p className="mt-2 text-[9px] opacity-70">{new Date(message.timestamp).toLocaleString("pt-BR")} · {({ sent: "Enviada", received: "Recebida", sending: "Enviando", unconfirmed: "Envio não confirmado" } as Record<string, string>)[message.delivery_status] || message.delivery_status}</p></article></div>)}
       {!messages.length && <p className="py-8 text-center text-sm text-slate-400">Ainda não há mensagens. O envio depende de preços comparáveis, reputação aprovada e contato autorizado.</p>}
     </div><footer className="border-t border-slate-100 p-3 text-center text-[10px] text-slate-400">{sandbox ? "Demonstração com mensagens reais · economia fora dos indicadores reais" : "Últimas 200 mensagens reais · esta janela acompanha a conversa"}</footer>
   </dialog>;
