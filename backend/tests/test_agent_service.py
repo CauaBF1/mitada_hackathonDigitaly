@@ -1,5 +1,8 @@
 import pytest
+import asyncio
 from pydantic import ValidationError
+from decimal import Decimal
+from types import SimpleNamespace
 
 from app import agent_service
 
@@ -38,3 +41,227 @@ def test_callback_origin_allows_only_fixed_local_hosts_and_origin_only(monkeypat
 def test_langgraph_declares_four_ordered_processing_nodes():
     nodes = agent_service.graph_builder.nodes
     assert {"research", "prepare", "parse", "analysis"} <= set(nodes)
+
+
+def test_research_collects_one_verified_reputation_per_unique_domain(monkeypatch):
+    from app.scraper_tools import ProductOffer, Reputation
+    product = ProductOffer(supplier_name="Loja", supplier_domain="loja.example", supplier_website="https://loja.example",
+        product_name="Item", product_url="https://loja.example/p", price=Decimal("12.50"), availability="in stock",
+        observed_at="2026-01-01T00:00:00Z", extraction_method="schema.org/Product.offers", evidence_sha256="a" * 64)
+    monkeypatch.setattr(agent_service, "discover_market", lambda query: _async_result(DiscoveryMock([product, product])))
+    calls = []
+    class Scraper:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def reputation(self, supplier):
+            calls.append(supplier.supplier_domain)
+            return Reputation(supplier_domain=supplier.supplier_domain, company_name="Loja", url="https://www.reclameaqui.com.br/empresa/loja/",
+                score=Decimal("8.2"), label="Boa", period="Últimos 6 meses", checked_at="2026-01-01T00:00:00Z", verified=True,
+                approved=True, reason="Reputação verificada ≥ 6,0.", evidence_sha256="b" * 64)
+    monkeypatch.setattr(agent_service, "MarketScraper", Scraper)
+    result = asyncio.run(agent_service.research_node({"product":"Item", "task_id":"t1", "specs":{}}))
+    assert calls == ["loja.example"]
+    assert result["reputations"][0]["score"] == "8.2"
+    assert result["reputations"][0]["verified"] is True
+
+
+def test_research_timeout_keeps_reputation_score_null(monkeypatch):
+    from app.scraper_tools import ProductOffer
+    product = ProductOffer(supplier_name="Loja", supplier_domain="loja.example", supplier_website="https://loja.example",
+        product_name="Item", product_url="https://loja.example/p", price=Decimal("12.50"), availability="in stock",
+        observed_at="2026-01-01T00:00:00Z", extraction_method="schema.org/Product.offers", evidence_sha256="a" * 64)
+    monkeypatch.setattr(agent_service, "discover_market", lambda query: _async_result(DiscoveryMock([product])))
+    class Scraper:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def reputation(self, supplier): raise TimeoutError
+    monkeypatch.setattr(agent_service, "MarketScraper", Scraper)
+    result = asyncio.run(agent_service.research_node({"product":"Item", "task_id":"t1", "specs":{}}))
+    reputation = result["reputations"][0]
+    assert reputation["score"] is None and reputation["verified"] is False
+    assert "prazo" in reputation["reason"]
+
+
+def test_conversation_contract_allows_partial_terms_and_rejects_invalid_cents():
+    body = dict(product="Notebook", qty=1, destination="01001-000", message="Oi, tem 16 GB?", phase="quotation",
+                history=[], terms={"unit_cents": None, "shipping_cents": 1200}, missing_fields=["prazo"])
+    assert agent_service.ConversationTurnRequest.model_validate(body).terms["unit_cents"] is None
+    with pytest.raises(ValidationError):
+        agent_service.ConversationTurnRequest.model_validate({**body, "terms": {"unit_cents": 12.5}})
+    with pytest.raises(ValidationError):
+        agent_service.ConversationTurnRequest.model_validate({**body, "phase": "purchase!"})
+
+
+@pytest.mark.parametrize(("phase", "intent", "terms", "acceptance"), [
+    ("opening", "greeting", {}, "unclear"),
+    ("quotation", "question_and_missing_fields", {"unit_cents": None}, "unclear"),
+    ("quotation", "negation", {}, "unclear"),
+    ("quotation", "correction", {"unit_cents": 123456}, "unclear"),
+    ("quotation", "purchase_intent", {}, "unclear"),
+])
+def test_conversation_graph_passes_context_and_never_accepts_purchase_outside_purchase_phase(monkeypatch, phase, intent, terms, acceptance):
+    from app.agent_intelligence import ConversationTurn
+    seen = {}
+    async def fake(model, data):
+        seen.update(data)
+        return ConversationTurn(intent=intent, reply="Certo. Qual prazo você precisa?", terms=terms,
+                                explicit_confirmation=False, terms_changed=intent == "correction", purchase_acceptance="accepted")
+    monkeypatch.setattr(agent_service, "conversation_intelligence", fake)
+    state = {"product": "Notebook", "qty": 2, "destination": "01001-000", "message": "entrada",
+             "history": [{"sender_type": "user", "content": "Oi"}], "phase": phase,
+             "terms": {"unit_cents": None}, "missing_fields": ["prazo"]}
+    result = asyncio.run(agent_service.conversation_turn_node(state))["result"]
+    assert seen["phase"] == phase and seen["history"] == state["history"]
+    assert result["intent"] == intent and result["purchase_acceptance"] == acceptance
+    assert result["terms_changed"] is (intent == "correction")
+
+
+def test_supplier_requirement_question_normalizes_empty_terms_and_ignores_model_changed_flag(monkeypatch):
+    from app.agent_intelligence import ConversationTurn, CONVERSATION_PROMPT
+    async def fake(model, data):
+        return ConversationTurn(intent="supplier_question", reply="Vou confirmar a capacidade com o solicitante. Quais opções de DDR4 3200 vocês oferecem?",
+                                terms={}, terms_changed=True, purchase_acceptance="unclear")
+    monkeypatch.setattr(agent_service, "conversation_intelligence", fake)
+    state = {"product": "RAM DDR4 3200", "qty": 7, "destination": "01001-000",
+             "message": "Você precisa de quantos GB em cada pente?", "history": [], "phase": "quotation",
+             "terms": None, "missing_fields": ["capacidade"]}
+    result = asyncio.run(agent_service.conversation_turn_node(state))["result"]
+    assert result["terms"] is None
+    assert result["terms_changed"] is False
+    assert "você é o COMPRADOR" in CONVERSATION_PROMPT
+    assert "pergunte quais" in CONVERSATION_PROMPT
+
+
+def test_conversation_rebuilds_canonical_terms_from_entire_supplier_history_without_claiming_api_state(monkeypatch):
+    from app.agent_intelligence import ConversationTurn, CONVERSATION_PROMPT
+    history = [
+        {"sender_type": "supplier", "content": "R$ 980 por unidade, frete grátis, entrega em 5 dias."},
+        {"sender_type": "supplier", "content": "Temos 10 unidades. Taxas adicionais ainda não confirmadas."},
+        {"sender_type": "supplier", "content": "Pagamento por PIX ou cartão em até 12 vezes."},
+    ]
+    observed = {}
+    async def fake(model, data):
+        observed.update(data)
+        return ConversationTurn(intent="quote_clarification", reply="Reuni todas as informações e estou encaminhando a cotação para avaliação.",
+            terms={"supplier": "Loja Exemplo", "unit_cents": 98000, "shipping_cents": 0, "fees_cents": 3200,
+                   "lead_days": 5, "available_qty": 10, "product_confirmed": False, "destination_confirmed": False,
+                   "valid_until": "amanhã", "payment_terms": "PIX ou cartão em até 12 vezes"},
+            terms_changed=False, purchase_acceptance="unclear")
+    monkeypatch.setattr(agent_service, "conversation_intelligence", fake)
+    result = asyncio.run(agent_service.conversation_turn_node({
+        "product": "RAM DDR4 3200", "qty": 7, "destination": "01001-000",
+        "message": "Consigo manter preço até amanhã", "history": history, "phase": "quotation",
+        "terms": None, "missing_fields": [],
+    }))["result"]
+    assert observed["history"] == history
+    assert result["terms"] == {"supplier": "Loja Exemplo", "unit_cents": 98000, "shipping_cents": 0,
+        "lead_days": 5, "available_qty": 10, "valid_until": "amanhã", "payment_terms": "PIX ou cartão em até 12 vezes"}
+    assert "fees_cents" not in result["terms"]
+    assert "product_confirmed" not in result["terms"]
+    assert "destination_confirmed" not in result["terms"]
+    assert result["terms_changed"] is True
+    assert "taxas adicionais" in result["reply"]
+    assert "encaminhando" not in result["reply"]
+    assert "todas as mensagens do fornecedor" in CONVERSATION_PROMPT
+    assert "nunca invente taxas" in CONVERSATION_PROMPT.casefold()
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("Taxas adicionais ainda não confirmadas.", ("unknown", None)),
+    ("Taxa adicional: R$ 32,00.", ("amount", 3200)),
+    ("Não haverá taxas adicionais.", ("no_fees", 0)),
+    ("Não tem taxa, aceito somente pix", ("no_fees", 0)),
+    ("Nao tem taxas adicionais.", ("no_fees", 0)),
+    ("Isento de taxas.", ("no_fees", 0)),
+    ("Não há mais taxas", ("no_fees", 0)),
+    ("Frete custa 35 reais, taxa de importação de 650 reais e consigo entregar em 3 dias", ("amount", 65000)),
+    ("Frete custa 35 reais, taxa de importação de 650 reais e consigo entregar em 3 dias\nNão há mais taxas", ("amount", 65000)),
+    ("Frete custa 35 reais, taxa de importação de 650 reais e consigo entregar em 3 dias\nNão há taxas adicionais", ("amount", 65000)),
+    ("R$ 980 por unidade e frete grátis.", (None, None)),
+])
+def test_supplier_fee_evidence_never_infers_amount_from_other_quote_numbers(text, expected):
+    assert agent_service.supplier_fee_evidence(text) == expected
+
+
+def test_conversation_preserves_prior_quote_when_latest_message_only_adds_metadata(monkeypatch):
+    from app.agent_intelligence import ConversationTurn
+    prior = {"unit_cents": 98000, "shipping_cents": 0, "lead_days": 5, "available_qty": 10, "product_confirmed": False}
+    async def fake(model, data):
+        return ConversationTurn(intent="quote_clarification", reply="Qual forma de pagamento prefere?",
+            terms={"valid_until": "amanhã", "payment_terms": "PIX ou cartão em até 12 vezes"})
+    monkeypatch.setattr(agent_service, "conversation_intelligence", fake)
+    result = asyncio.run(agent_service.conversation_turn_node({
+        "product": "RAM DDR4 3200", "qty": 7, "destination": "01001-000", "message": "Consigo manter preço até amanhã",
+        "history": [{"sender_type": "supplier", "content": "R$ 980 frete grátis, 5 dias e estoque 10."}],
+        "phase": "quotation", "terms": prior, "missing_fields": [],
+    }))["result"]
+    assert result["terms"] == {**prior, "valid_until": "amanhã", "payment_terms": "PIX ou cartão em até 12 vezes"}
+    assert result["terms"]["product_confirmed"] is False
+    assert result["terms_changed"] is True
+
+
+def test_reputation_refresh_keeps_ra_403_unverified_and_caches_search_indications(monkeypatch):
+    from app import scraper_tools, search_provider
+    calls = {"official": 0, "search": []}
+    class Scraper:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def reputation(self, offer):
+            calls["official"] += 1
+            raise scraper_tools.ScrapingError("HTTP 403")
+    async def fake_search(query):
+        calls["search"].append(query)
+        return [{"title": "Relato público", "description": "Trecho de busca", "url": "https://www.reclameaqui.com.br/empresa/loja/"}]
+    monkeypatch.setattr(scraper_tools, "MarketScraper", Scraper)
+    monkeypatch.setattr(search_provider, "tavily_results", fake_search)
+    monkeypatch.setattr(agent_service, "require_internal_token", lambda token: None)
+    agent_service._reputation_cache.clear()
+    payload = agent_service.ReputationRefreshRequest(offers=[{"source_url": "https://loja.com.br/item", "supplier": "Nome que não deve ser pesquisado"}])
+    first = asyncio.run(agent_service.reputation_refresh(payload, None))
+    second = asyncio.run(agent_service.reputation_refresh(payload, None))
+    assert first["reputations"][0]["verified"] is False
+    assert first["reputations"][0]["score"] is None
+    assert first["reputation_indications"][0]["verified"] is False
+    assert first["reputation_indications"][0]["url"] == "https://www.reclameaqui.com.br/empresa/loja/"
+    assert first["reputation_indications"][0]["timestamp"]
+    assert len(calls["search"]) == 1 and calls["official"] == 1
+    assert "Nome que não deve ser pesquisado" not in calls["search"][0]
+    assert second["reputation_indications"] == first["reputation_indications"]
+
+
+def test_reputation_refresh_enforces_total_budget_and_three_domain_limit_without_sleep(monkeypatch):
+    from app import scraper_tools, search_provider
+    clock = [100.0]
+    waits = []
+    async def simulated_wait(awaitable, timeout):
+        waits.append(timeout)
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        clock[0] += timeout
+        raise TimeoutError
+    async def unused_search(query):
+        raise AssertionError("Busca não deveria executar fora dos awaits limitados")
+    monkeypatch.setattr(agent_service.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(agent_service.asyncio, "wait_for", simulated_wait)
+    monkeypatch.setattr(search_provider, "tavily_results", unused_search)
+    monkeypatch.setattr(agent_service, "require_internal_token", lambda token: None)
+    agent_service._reputation_cache.clear()
+    offers = [{"source_url": f"https://shop{i}.com.br/item"} for i in range(1, 6)]
+    result = asyncio.run(agent_service.reputation_refresh(agent_service.ReputationRefreshRequest(offers=offers), None))
+    statuses = {row["supplier_domain"]: row["status"] for row in result["reputations"]}
+    assert clock[0] - 100.0 == agent_service.REPUTATION_REFRESH_TOTAL_BUDGET_SECONDS
+    assert waits == [8, 5, 8, 4]
+    assert statuses["shop1.com.br"] == "timeout"
+    assert statuses["shop2.com.br"] == "timeout"
+    assert statuses["shop3.com.br"] == "skipped_timeout"
+    assert statuses["shop4.com.br"] == statuses["shop5.com.br"] == "skipped_limit"
+    assert all(row["verified"] is False for row in result["reputations"])
+
+
+class DiscoveryMock:
+    def __init__(self, products):
+        self.products, self.errors, self.blocked_sites = products, [], 0
+
+
+async def _async_result(value):
+    return value

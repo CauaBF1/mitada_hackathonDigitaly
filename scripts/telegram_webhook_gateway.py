@@ -4,12 +4,28 @@ import hmac
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+
+def _dotenv_value(key: str) -> str:
+    env_file = Path(__file__).resolve().parents[1] / ".env"
+    if not env_file.is_file():
+        return ""
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        k, v = stripped.split("=", 1)
+        if k.strip() == key:
+            return v.strip().strip("'\"")
+    return ""
+
+
 MAX_BODY = 65536
-NEST_API_URL = os.environ.get("NEST_API_URL", "http://127.0.0.1:4000").rstrip("/")
-SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+NEST_API_URL = (os.environ.get("NEST_API_URL") or _dotenv_value("NEST_API_URL") or "http://127.0.0.1:4000").rstrip("/")
+SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET") or _dotenv_value("TELEGRAM_WEBHOOK_SECRET")
 
 
 class Handler(BaseHTTPRequestHandler):

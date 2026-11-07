@@ -1,4 +1,117 @@
 import { expect, test } from "@playwright/test";
+import { frontendStatus, mapReputationIndications, reputationMatchesOrigin } from "../app/api/status";
+
+test("maps API completion to DONE without implying a purchase decision", async () => {
+  expect(frontendStatus("concluida", 0)).toBe("DONE");
+  expect(frontendStatus("decidida", 0)).toBe("DONE");
+  expect(frontendStatus("recebida", 0)).toBe("CALLING");
+  expect(reputationMatchesOrigin("loja.example", "shop.loja.example", true)).toBe(true);
+  expect(reputationMatchesOrigin("loja.example", "pessoa-telegram.example", false)).toBe(false);
+  expect(reputationMatchesOrigin("loja.example", "outra.example", true)).toBe(false);
+});
+
+test("maps Python reputation indications into dashboard fields without filtering snippets", () => {
+  const timestamp = "2026-11-07T12:34:56.000Z";
+  expect(mapReputationIndications([{ supplier_domain: "cascalho.example", url: "https://reviews.example/post/7", title: "Relato sobre fornecedor", snippet: "Trecho encontrado na fonte", timestamp, verified: false }])).toEqual([{
+    supplier_domain: "cascalho.example", company_name: "Relato sobre fornecedor", title: "Relato sobre fornecedor", url: "https://reviews.example/post/7",
+    excerpt: "Trecho encontrado na fonte", observed_at: timestamp,
+  }]);
+});
+
+test("completed Telegram quote without source URL confirms by persisted quote id and cancels simulation", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  const id = "11111111-1111-4111-8111-111111111111";
+  const quoteId = "22222222-2222-4222-8222-222222222222";
+  const row: any = {
+    id, version: 7, item: "Cascalho real", qty: 3, delivery_location: "São Paulo", status: "DONE", stage: "concluida",
+    mode: "live", sources: [], reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0,
+    selected_product_url: null, quote: { id: quoteId, supplier_name: "Fornecedor Telegram", product_name: "Cascalho", product_url: "", final_price: "12.00", shipping_fee: "5.00", final_tco: "41.00", event_id: "telegram-event", conditions: "" },
+    purchase_simulation: null, audit: { additional_cost_total: "0.00" },
+  };
+  await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "0", cost_avoidance: "0", final_spend: "0", completed_count: 1, active_count: 0, verified_suppliers_count: 0, pending_tco_count: 0 } } }));
+  let decisionBody: any; let decisionKey = ""; let decisionAttempts = 0; let cancelUrl = "";
+  await page.route(`**/api/request/${id}/decision`, async route => {
+    decisionAttempts++; decisionBody = route.request().postDataJSON(); decisionKey = route.request().headers()["idempotency-key"] || "";
+    if (decisionAttempts > 1) row.purchase_simulation = { id: "sim-1", status: "awaiting_supplier", quote_id: quoteId };
+    await route.fulfill({ status: decisionAttempts === 1 ? 503 : 201, json: decisionAttempts === 1 ? { detail: "Falha simulada" } : row.purchase_simulation });
+  });
+  await page.route(`**/api/request/${id}/purchase-simulation/cancel`, async route => { cancelUrl = route.request().url(); row.purchase_simulation = { id: "sim-1", status: "cancelled", quote_id: quoteId }; await route.fulfill({ json: row.purchase_simulation }); });
+  await page.goto("/");
+  await page.locator("#kanban").getByRole("button", { name: /Cascalho real/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Cascalho real" });
+  await expect(drawer).toBeVisible();
+  expect(pageErrors).toEqual([]);
+  await drawer.getByRole("button", { name: "Quero comprar" }).click();
+  const confirmation = page.getByRole("alertdialog", { name: "Confirmar compra simulada?" });
+  await expect(confirmation).toContainText("Fornecedor Telegram");
+  await expect(confirmation).toContainText("Cascalho");
+  await expect(confirmation).toContainText("Nenhuma cobrança será feita");
+  await confirmation.getByRole("button", { name: "Confirmar simulação" }).click();
+  const firstKey = decisionKey;
+  await expect(confirmation.getByRole("alert")).toContainText("Falha simulada");
+  await confirmation.getByRole("button", { name: "Confirmar simulação" }).click();
+  expect(decisionBody).toEqual({ quote_id: quoteId, version: 7, confirmed: true });
+  expect(firstKey).toBeTruthy();
+  expect(decisionKey).toBe(firstKey);
+  await drawer.getByRole("button", { name: "Cancelar simulação" }).click();
+  expect(cancelUrl).toContain(`/api/request/${id}/purchase-simulation/cancel`);
+});
+
+test("drawer displays partial supplier quote + market options in NEGOTIATING and internet preference in DONE", async ({ page }) => {
+  const negId = "33333333-3333-4333-8333-333333333333";
+  const doneId = "44444444-4444-4444-8444-444444444444";
+  const supplierQuoteId = "55555555-5555-4555-8555-555555555555";
+  const marketQuoteId = "66666666-6666-4666-8666-666666666666";
+  const negotiatingRow: any = {
+    id: negId, version: 2, item: "Monitor Dell 24", qty: 1, delivery_location: "13565090", status: "NEGOTIATING", stage: "comparação",
+    quote_completion_state: "coletando", missing_fields: ["fees_cents", "destination_confirmed"],
+    mode: "live", reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0,
+    selected_product_url: null, market_average: "1049.00",
+    sources: [{ quote_id: "77777777-7777-4777-8777-777777777777", supplier_name: "KaBuM!", supplier_domain: "kabum.com.br", product_name: "Monitor Dell 24 IPS", product_url: "https://www.kabum.com.br/produto/123", price: "1049.00", shipping_fee: null, availability: "Não confirmada", currency: "BRL", observed_at: "2026-11-07T15:00:00.000Z" }],
+    quote: { supplier_name: "Fornecedor Telegram", product_name: "Monitor Dell 24", product_url: "", initial_price: "980.00", final_price: "980.00", shipping_fee: "0.00", fees_fee: null, final_tco: null, delivery_time: "5 dias", delivery_days: 5, available_qty: 10, payment_terms: "PIX, cartão em 12x sem juros", valid_until: "amanhã", conditions: "frete grátis" },
+    purchase_simulation: null, preferred_market_quote_id: null, audit: null,
+  };
+  const doneRow: any = {
+    id: doneId, version: 4, item: "Memória RAM DDR4", qty: 7, delivery_location: "13565090", status: "DONE", stage: "concluida",
+    quote_completion_state: "concluida", missing_fields: [],
+    mode: "live", reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0,
+    selected_product_url: null, market_average: "389.00",
+    sources: [{ quote_id: marketQuoteId, supplier_name: "Terabyteshop", supplier_domain: "terabyteshop.com.br", product_name: "Memória DDR4 3200MHz", product_url: "https://www.terabyteshop.com.br/produto/999", price: "389.00", shipping_fee: null, availability: "Não confirmada", currency: "BRL", observed_at: "2026-11-07T15:00:00.000Z" }],
+    quote: { id: supplierQuoteId, supplier_name: "Fornecedor Telegram", product_name: "Memória RAM DDR4", product_url: "", initial_price: "350.00", final_price: "350.00", shipping_fee: "7.00", fees_fee: "0.00", final_tco: "2457.00", delivery_time: "4 dias", delivery_days: 4, available_qty: 10, payment_terms: "somente pix", conditions: "somente pix" },
+    purchase_simulation: null, preferred_market_quote_id: null, audit: { final_price: "350.00", shipping_fee: "7.00", additional_cost_total: "0.00", quantity: 7, product_subtotal: "2450.00", initial_tco: "2457.00", final_tco: "2457.00", market_tco: null, hard_savings: null, cost_avoidance: null, delivery_days: 4, delivery_day_type: "unknown", justification: "Cotação confirmada pelo fornecedor no canal autorizado.", limitations: [], evidence_message_ids: [], audited_at: "2026-11-07T15:10:00.000Z" },
+  };
+  await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 2, runs: [negotiatingRow, doneRow], metrics: { hard_savings: "0", cost_avoidance: "0", final_spend: "2457.00", completed_count: 1, active_count: 1, verified_suppliers_count: 2, pending_tco_count: 0 } } }));
+  let marketPayloads: any[] = [];
+  await page.route(`**/api/request/${doneId}/market-preference`, async route => {
+    const body = route.request().postDataJSON();
+    marketPayloads.push(body);
+    doneRow.preferred_market_quote_id = body.quote_id;
+    doneRow.version += 1;
+    await route.fulfill({ status: 201, json: doneRow });
+  });
+  await page.goto("/");
+  await page.getByRole("region", { name: "Aguardando cotação" }).getByRole("button", { name: /Monitor Dell 24/ }).click();
+  const negDrawer = page.getByRole("dialog", { name: "Monitor Dell 24" });
+  await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("Extração em andamento");
+  await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("R$ 980,00");
+  await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("5 dias");
+  await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("PIX, cartão em 12x sem juros");
+  await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("taxas adicionais, confirmação do CEP");
+  await expect(negDrawer.getByRole("region", { name: "Opções do mercado" })).toContainText("KaBuM!");
+  await expect(negDrawer.getByRole("region", { name: "Opções do mercado" })).toContainText("R$ 1.049,00");
+  await negDrawer.getByRole("button", { name: "Fechar detalhes" }).click();
+
+  await page.getByRole("region", { name: "Concluídas" }).getByRole("button", { name: /Memória RAM DDR4/ }).click();
+  const doneDrawer = page.getByRole("dialog", { name: "Memória RAM DDR4" });
+  await expect(doneDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("R$ 2.457,00");
+  await expect(doneDrawer.getByRole("button", { name: "Quero comprar" })).toBeVisible();
+  await doneDrawer.getByRole("button", { name: "Preferir esta opção da internet" }).click();
+  expect(marketPayloads[0]).toEqual({ quote_id: marketQuoteId, version: 4 });
+  await expect(doneDrawer.getByText("Preferência registrada: Terabyteshop")).toBeVisible();
+  await doneDrawer.getByRole("button", { name: "Limpar preferência" }).click();
+  expect(marketPayloads[1]).toEqual({ quote_id: null, version: 5 });
+});
 
 test("starts with real data only and combines metrics and Kanban", async ({ page }) => {
   await page.goto("/");

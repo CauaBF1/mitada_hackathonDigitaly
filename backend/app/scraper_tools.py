@@ -108,10 +108,38 @@ def normalize(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", text.casefold()).encode("ascii", "ignore").decode()))
 
 
+_TOKEN_SYNONYMS = {
+    "televisao": "tv",
+    "televisor": "tv",
+    "smarttv": "tv",
+    "laptop": "notebook",
+    "refrigerador": "geladeira",
+}
+_UNIT_SUFFIX_RE = re.compile(r"^(\d+)(mhz|ghz|gb|tb|mb|hz|pol|w|v|kg|ml)$")
+_MODEL_PREFIX_DIGITS_RE = re.compile(r"^(\d{2,4})[a-z][a-z0-9]*$")
+
+
+def _canonical_tokens(text: str, *, expand_model_digits: bool = False) -> set[str]:
+    raw = normalize(text).split()
+    out: set[str] = set()
+    for token in raw:
+        mapped = _TOKEN_SYNONYMS.get(token, token)
+        out.add(mapped)
+        unit_match = _UNIT_SUFFIX_RE.match(mapped)
+        if unit_match:
+            out.add(unit_match.group(1))
+            out.add(unit_match.group(2))
+        elif expand_model_digits:
+            model_match = _MODEL_PREFIX_DIGITS_RE.match(mapped)
+            if model_match:
+                out.add(model_match.group(1))
+    return out
+
+
 def same_product(query: str, title: str) -> bool:
-    ignored = {"de", "da", "do", "das", "dos", "com", "para", "e", "um", "uma", "o", "a", "comprar", "preco"}
-    terms = set(normalize(query).split()) - ignored
-    found = set(normalize(title).split())
+    ignored = {"de", "da", "do", "das", "dos", "com", "para", "e", "um", "uma", "o", "a", "comprar", "preco", "polegadas", "polegada", "pol", "unidades", "unidade", "un"}
+    terms = _canonical_tokens(query, expand_model_digits=False) - ignored
+    found = _canonical_tokens(title, expand_model_digits=True)
     if not terms:
         return False
     identifiers = {term for term in terms if any(char.isdigit() for char in term)}
@@ -464,7 +492,9 @@ class MarketScraper:
     async def discover(self, item: str) -> Discovery:
         result = Discovery(query=item, searched_at=timestamp())
         deadline = asyncio.get_running_loop().time() + settings.discovery_timeout_seconds
-        queries = [f'{item} preço comprar Brasil', f'"{item}" comprar preço à vista']
+        alt_item = re.sub(r"\s+", " ", re.sub(r"\bpolegadas?\b", '"', re.sub(r"\b(?:televisão|televisao|televisor)\b", "Smart TV", item, flags=re.I), flags=re.I)).strip()
+        second_query = f'{alt_item} comprar preço à vista' if alt_item.lower() != item.lower() else f'"{item}" comprar preço à vista'
+        queries = [f'{item} preço comprar Brasil', second_query]
         urls = []
         for query in queries:
             try:
