@@ -15,6 +15,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Adicione `TAVILY_API_KEY` ao `.env` da raiz para habilitar a busca Tavily usada na pesquisa de produtos e reputação. O `.env.example` contém apenas um placeholder; obtenha a chave no painel Tavily. A integração respeita o plano gratuito e pausa buscas quando não há créditos gratuitos disponíveis.
+
 Abra http://localhost:3000. A API Nest fica em http://localhost:4000 e os agentes só são expostos na rede interna Compose. Os dados de negócio e os checkpoints usam volumes distintos.
 
 ### Desenvolvimento local e integrações
@@ -58,6 +60,29 @@ Rotas principais:
 - Serviço Python interno: `POST /tasks`, `GET /health`
 
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` e `GEMINI_API_KEY` existem somente no ambiente dos serviços. Configure um webhook HTTPS com o segredo correspondente no Telegram. A integração processa comandos de proposta recebidos; o bot não inicia conversas com fornecedores nem presume autorização para contatá-los.
+
+### Conversa e reputação internas
+
+O serviço Python autentica essas rotas com `Authorization: Bearer $INTERNAL_API_TOKEN`:
+
+- `POST /conversation-turn`: recebe `product`, `qty`, `destination`, `message`, `history` (`sender_type`/`content`), `phase` (`opening`, `quotation`, `quote_confirmation`, `quote_completed` ou `purchase`), `terms` e `missing_fields`. Retorna `intent`, `reply`, `terms`, `explicit_confirmation`, `terms_changed` e `purchase_acceptance`. Valores monetários em `terms` usam centavos inteiros (`*_cents`); pendências continuam nulas. Na conversa o agente representa o comprador falando com o fornecedor. Perguntas sobre requisitos ainda não fornecidos são encaminhadas ao solicitante, pedindo ao fornecedor suas opções.
+- `POST /reputation-refresh`: recebe `offers` com `source_url` e `supplier`; retorna `reputations` verificadas pelo parser oficial estrito, `reputation_indications` de busca com trecho, URL e timestamp, e `checked_at`. Indicações de busca nunca são reputação verificada. Cache por domínio: 24 horas; domínio ausente ou inválido resulta em reputação desconhecida.
+
+Na simulação de compra, a cotação só avança após confirmação humana; o Telegram pode registrar/aceitar essa confirmação no fluxo. Isso não executa pagamento nem afirma que houve compra concluída.
+
+Depois que a API confirmar o encaminhamento dos contratos, com o serviço Python em `http://127.0.0.1:8000`, faça os smokes autenticados abaixo. Eles usam o token já exportado no ambiente e não o imprimem:
+
+```sh
+curl -sS http://127.0.0.1:8000/conversation-turn \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"product":"RAM DDR4 3200","qty":7,"destination":"01001-000","message":"Você precisa de quantos GB em cada pente?","history":[],"phase":"quotation","terms":null,"missing_fields":["capacidade"]}'
+
+curl -sS http://127.0.0.1:8000/reputation-refresh \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"offers":[{"source_url":"https://loja.example/produto","supplier":"Loja"}]}'
+```
+
+Esses comandos são instruções de smoke, não evidência de execução live. Resultados de Gemini/Tavily só serão considerados validados após rodar e inspecionar as respostas no ambiente integrado.
 
 ## Validação
 

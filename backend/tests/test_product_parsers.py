@@ -79,6 +79,9 @@ def test_category_exploration_follows_itemlist_urls_and_excludes_bundles():
     assert not any('bundle' in link for link in links)
     assert not same_product('mouse logitech', 'Combo Teclado e Mouse Logitech MK880')
     assert same_product('teclado e mouse logitech', 'Combo Teclado e Mouse Logitech MK880')
+    assert same_product('televisão hisense 43 polegadas 4k', 'Smart TV 43" Hisense 4K UHD 43A6N')
+    assert same_product('televisão hisense 43 polegadas 4k', 'Smart TV Hisense 43A6K LED 4K UHD')
+    assert not same_product('televisão hisense 43 polegadas 4k', 'Smart TV Hisense 50" 4K UHD')
 
 
 def test_discovery_reaches_real_html_offer_from_category_and_streams_it(monkeypatch):

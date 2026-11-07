@@ -31,6 +31,7 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       NEST_API_URL: http://api:4000
     volumes: [agent-data:/data]
     expose: ["8000"]
