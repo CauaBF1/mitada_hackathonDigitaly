@@ -63,4 +63,8 @@ Rotas principais:
 
 Os testes herdados em `backend/tests` incluem contratos do desenho FastAPI anterior e não validam automaticamente a arquitetura Nest atual. Use `npm run build` em `api/`, `npm run typecheck`/`npm run build` em `frontend/`, os testes Python aplicáveis e `docker compose config` conforme dependências disponíveis. Não há fixtures de propostas inventadas no dashboard.
 
-Voz e WhatsApp estão fora do fluxo ativo. Módulos históricos foram mantidos da base incorporada, mas não são montados pelos serviços descritos acima.
+Os módulos históricos de voz em Python usam outro modelo de dados e não são montados pelo serviço `agents`. O NestJS agora recebe eventos de encerramento de voz e executa o fallback para WhatsApp; veja a configuração abaixo.
+
+## WhatsApp e fallback de voz
+
+Configuração da Evolution API v2, QR Code, webhooks e exemplos de teste com `curl`: [docs/whatsapp.md](docs/whatsapp.md).

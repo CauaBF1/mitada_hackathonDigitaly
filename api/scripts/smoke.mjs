@@ -27,6 +27,7 @@ const fakeAgent = createServer(async (req, res) => {
   if (req.url === '/interpret-quote') {
     if (++interpretCalls === 1) { res.writeHead(503).end('{"error":"temporary mock failure"}'); return; }
     const payload = JSON.parse(body);
+    assert.ok(!payload.text.includes('whatsapp-only-marker'), 'Telegram must not receive WhatsApp history');
     const currentText = payload.text.split('Mensagem atual do fornecedor:').at(-1);
     const partial = currentText.includes('smoke-incremental');
     const denial = currentText.includes('smoke-denial');
@@ -105,6 +106,7 @@ try {
   assert.equal(db.prepare('SELECT status FROM telegram_updates WHERE update_id=102').get().status, 'processed');
   assert.equal(db.prepare('SELECT attempts FROM telegram_updates WHERE update_id=102').get().attempts, 2);
   const incremental = await json('/requests', 'POST', { product: 'Item incremental', specs: {}, qty: 1, destination: '13565-090' });
+  db.prepare("INSERT INTO conversation_messages(id,request_id,chat_id,sender_type,content,channel,created_at) VALUES(?,?,?,'SUPPLIER',?,'whatsapp',?)").run('cross-channel-fixture', incremental.body.id, '5511999999999', 'whatsapp-only-marker: preço de outro fornecedor', new Date().toISOString());
   const incrementalReply = db.prepare('SELECT message_id FROM telegram_outbound WHERE request_id=? ORDER BY message_id DESC LIMIT 1').get(incremental.body.id).message_id;
   const supplierTurn = async (update_id, text) => json('/webhook/telegram', 'POST', { update_id, message: { text, chat: { id: 12345 }, from: { id: 12345, first_name: 'Ana' }, reply_to_message: { message_id: incrementalReply } } }, { 'x-telegram-bot-api-secret-token': 'smoke-webhook-secret' });
   await supplierTurn(201, 'smoke-incremental preço unitário');

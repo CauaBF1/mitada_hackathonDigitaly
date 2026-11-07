@@ -1,0 +1,9 @@
+{
+  "name": "nexo-evolution-pairing",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "patch-package": "8.0.1"
+  }
+}
