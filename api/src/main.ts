@@ -2,11 +2,13 @@ import 'reflect-metadata';
 import { BadRequestException, Body, Controller, Get, Headers, HttpCode, Injectable, NotFoundException, Param, Post, UnauthorizedException, Module, OnModuleInit } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import Database from 'better-sqlite3';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, createHmac, timingSafeEqual } from 'node:crypto';
 
 const db = new Database(process.env.DATABASE_PATH || './business.sqlite');
 db.pragma('journal_mode = WAL');
-db.exec(`CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, product TEXT NOT NULL, specs TEXT NOT NULL, qty INTEGER NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL, decision TEXT, version INTEGER NOT NULL DEFAULT 1, execution_version INTEGER NOT NULL DEFAULT 0, agent_analysis TEXT, notice TEXT, created_at TEXT NOT NULL);
+db.exec(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, google_id TEXT, avatar_url TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, product TEXT NOT NULL, specs TEXT NOT NULL, qty INTEGER NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL, decision TEXT, version INTEGER NOT NULL DEFAULT 1, execution_version INTEGER NOT NULL DEFAULT 0, agent_analysis TEXT, notice TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES requests(id), event_id TEXT NOT NULL, supplier TEXT NOT NULL, unit_cents INTEGER NOT NULL, shipping_cents INTEGER, fees_cents INTEGER, lead_days INTEGER, available_qty INTEGER, conditions TEXT, source_url TEXT, product_confirmed INTEGER NOT NULL DEFAULT 0, destination_confirmed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(request_id,event_id));
 CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, request_id TEXT NOT NULL, status TEXT NOT NULL, payload TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_outbound(chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(chat_id,message_id));
@@ -19,6 +21,45 @@ function ensureColumn(table:string,column:string,definition:string){const column
 ensureColumn('requests','execution_version','INTEGER NOT NULL DEFAULT 0');ensureColumn('requests','agent_analysis','TEXT');ensureColumn('requests','notice','TEXT');ensureColumn('quotes','source_url','TEXT');ensureColumn('quotes','product_confirmed','INTEGER NOT NULL DEFAULT 0');ensureColumn('quotes','destination_confirmed','INTEGER NOT NULL DEFAULT 0');
 const outboundInfo=db.prepare('PRAGMA table_info(telegram_outbound)').all() as any[];if(!outboundInfo.some(row=>row.name==='chat_id'&&row.pk===1)){db.exec(`ALTER TABLE telegram_outbound RENAME TO telegram_outbound_legacy;CREATE TABLE telegram_outbound(chat_id TEXT NOT NULL,message_id INTEGER NOT NULL,request_id TEXT NOT NULL,PRIMARY KEY(chat_id,message_id));INSERT OR IGNORE INTO telegram_outbound(chat_id,message_id,request_id) SELECT chat_id,message_id,request_id FROM telegram_outbound_legacy;DROP TABLE telegram_outbound_legacy;`);}
 function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'');if(!/^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:[,.]\d{1,2})?$/.test(raw))return Number.NaN;const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):raw;const [whole,fraction='']=normalized.split('.');const cents=Number(whole)*100+Number((fraction+'00').slice(0,2));return Number.isSafeInteger(cents)?cents:Number.NaN;}
+const jwtSecret = () => process.env.JWT_SECRET || 'nexo-dev-jwt-secret-change-in-production';
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyPassword(password: string, stored: string): boolean {
+  const [salt, keyHex] = stored.split(':');
+  if (!salt || !keyHex) return false;
+  const keyBuf = Buffer.from(keyHex, 'hex');
+  const derived = scryptSync(password, salt, 64);
+  return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
+}
+function signJwt(payload: Record<string, any>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const body = Buffer.from(JSON.stringify({ ...payload, iat: now, exp: now + 60 * 60 * 24 * 7 })).toString('base64url');
+  const sig = createHmac('sha256', jwtSecret()).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${sig}`;
+}
+function verifyJwt(token: string): Record<string, any> {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new UnauthorizedException('Token de sessão inválido.');
+  const [header, body, sig] = parts;
+  const expected = createHmac('sha256', jwtSecret()).update(`${header}.${body}`).digest('base64url');
+  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    throw new UnauthorizedException('Assinatura do token inválida.');
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+    }
+    return payload;
+  } catch (err) {
+    if (err instanceof UnauthorizedException) throw err;
+    throw new UnauthorizedException('Token malformado.');
+  }
+}
 
 @Injectable() class Business implements OnModuleInit {
   async onModuleInit(){ db.prepare("UPDATE tasks SET status='queued' WHERE status='dispatching'").run(); const pump=()=>{for(const t of db.prepare("SELECT * FROM tasks WHERE status='queued'").all() as any[]) void this.dispatch(t);for(const d of db.prepare("SELECT * FROM telegram_delivery WHERE status='failed'").all() as any[])void this.retryTelegram(d);db.prepare("UPDATE telegram_updates SET status='exhausted' WHERE status='pending' AND attempts>=3").run();const pending=db.prepare("SELECT update_id,raw_update FROM telegram_updates WHERE status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?) ORDER BY received_at LIMIT 5").all(new Date().toISOString()) as any[];for(const u of pending){const now=new Date().toISOString();const claimed=db.prepare("UPDATE telegram_updates SET status='processing',attempts=attempts+1,retry_after=? WHERE update_id=? AND status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?)").run(new Date(Date.now()+40000).toISOString(),u.update_id,now);if(claimed.changes)void this.telegram(JSON.parse(u.raw_update),process.env.TELEGRAM_WEBHOOK_SECRET||'',true).catch(()=>{});}}; pump(); setInterval(pump,5000).unref(); }
@@ -75,10 +116,126 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
       const did=randomUUID();db.prepare("INSERT INTO telegram_delivery VALUES(?,?,?,'sending',NULL,?)").run(did,req.id,chat,new Date().toISOString());const sent=await this.sendTelegram(did,req.id,chat,answer);db.prepare("UPDATE telegram_updates SET status=? WHERE update_id=?").run(sent?'processed':'pending',updateId);return {ok:true,pending:!sent};
     }catch{db.prepare("UPDATE telegram_updates SET status='pending',retry_after=? WHERE update_id=?").run(new Date(Date.now()+10000).toISOString(),updateId);return {ok:true,pending:true,reason:'interpretation-or-validation'};}
   }
+  private publicUser(row: any) {
+    return { id: row.id, name: row.name, email: row.email, google_id: row.google_id || null, avatar_url: row.avatar_url || null, created_at: row.created_at };
+  }
+  getAuthConfig() {
+    const dbClientId = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_id'").get() as any)?.value || '';
+    const dbClientSecret = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_secret'").get() as any)?.value || '';
+    const envClientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+    const envClientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const clientId = (dbClientId || envClientId).trim() || null;
+    const hasSecret = Boolean((dbClientSecret || envClientSecret).trim());
+    return { google_client_id: clientId, has_client_secret: hasSecret };
+  }
+  saveAuthConfig(body: any) {
+    const rawClientId = typeof body?.google_client_id === 'string' ? body.google_client_id.trim() : '';
+    const rawClientSecret = typeof body?.google_client_secret === 'string' ? body.google_client_secret.trim() : '';
+    if (!rawClientId || !rawClientId.endsWith('.apps.googleusercontent.com')) {
+      throw new BadRequestException('Informe um Google Client ID válido (terminado em .apps.googleusercontent.com).');
+    }
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO app_settings(key, value, updated_at) VALUES ('google_client_id', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(rawClientId, now);
+    if (rawClientSecret) {
+      db.prepare("INSERT INTO app_settings(key, value, updated_at) VALUES ('google_client_secret', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(rawClientSecret, now);
+    }
+    return this.getAuthConfig();
+  }
+  register(body: any) {
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido (entre 2 e 120 caracteres).');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new BadRequestException('Informe um e-mail corporativo válido.');
+    if (password.length < 6 || password.length > 128) throw new BadRequestException('A senha deve ter entre 6 e 128 caracteres.');
+    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (exists) throw new BadRequestException('Este e-mail já está cadastrado. Faça login.');
+    const id = randomUUID(), now = new Date().toISOString(), passwordHash = hashPassword(password);
+    db.prepare('INSERT INTO users(id, name, email, password_hash, google_id, avatar_url, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?)').run(id, name, email, passwordHash, now);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  login(body: any) {
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (!email || !password) throw new BadRequestException('Informe seu e-mail e senha.');
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    if (!user) throw new UnauthorizedException('E-mail ou senha inválidos.');
+    if (!user.password_hash) throw new UnauthorizedException('Esta conta utiliza login com Google. Clique em "Continuar com o Google".');
+    if (!verifyPassword(password, user.password_hash)) throw new UnauthorizedException('E-mail ou senha inválidos.');
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  async googleAuth(body: any): Promise<{ token: string; user: any }> {
+    let googleId = '', email = '', name = '', avatarUrl: string | null = null;
+    const dbClientId = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_id'").get() as any)?.value || '';
+    const dbClientSecret = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_secret'").get() as any)?.value || '';
+    const clientId = (dbClientId || process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = (dbClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    if (typeof body?.credential === 'string' && body.credential.trim()) {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(body.credential.trim())}`, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new UnauthorizedException('Credencial do Google inválida ou expirada.');
+      const info: any = await res.json();
+      if (clientId && info.aud && info.aud !== clientId) throw new UnauthorizedException('Client ID do Google não corresponde a esta aplicação.');
+      if (!info.email || !info.sub) throw new UnauthorizedException('Token do Google não contém perfil válido.');
+      googleId = String(info.sub);
+      email = String(info.email).toLowerCase();
+      name = String(info.name || info.given_name || email.split('@')[0]).slice(0, 120);
+      avatarUrl = typeof info.picture === 'string' ? info.picture : null;
+    } else if (typeof body?.access_token === 'string' && body.access_token.trim()) {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${body.access_token.trim()}` }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new UnauthorizedException('Token de acesso do Google inválido ou expirado.');
+      const info: any = await res.json();
+      if (!info.email || !info.sub) throw new UnauthorizedException('Perfil do Google incompleto.');
+      googleId = String(info.sub);
+      email = String(info.email).toLowerCase();
+      name = String(info.name || info.given_name || email.split('@')[0]).slice(0, 120);
+      avatarUrl = typeof info.picture === 'string' ? info.picture : null;
+    } else if (typeof body?.code === 'string' && body.code.trim()) {
+      if (!clientId || !clientSecret) throw new BadRequestException('GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET não configurados no servidor.');
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ code: body.code.trim(), client_id: clientId, client_secret: clientSecret, redirect_uri: body.redirect_uri || 'postmessage', grant_type: 'authorization_code' }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!tokenRes.ok) throw new UnauthorizedException('Falha ao trocar código OAuth com o Google.');
+      const tokens: any = await tokenRes.json();
+      return this.googleAuth({ credential: tokens.id_token, access_token: tokens.access_token });
+    } else {
+      throw new BadRequestException('Credencial OAuth do Google ausente. Configure o Google Client ID para autenticar com o Google.');
+    }
+    let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, email) as any;
+    if (user) {
+      db.prepare('UPDATE users SET google_id = COALESCE(?, google_id), avatar_url = COALESCE(?, avatar_url), name = COALESCE(NULLIF(?, \'\'), name) WHERE id = ?').run(googleId, avatarUrl, name, user.id);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id) as any;
+    } else {
+      const id = randomUUID(), now = new Date().toISOString();
+      db.prepare('INSERT INTO users(id, name, email, password_hash, google_id, avatar_url, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)').run(id, name, email, googleId, avatarUrl, now);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    }
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  me(authHeader?: string) {
+    const token = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
+    if (!token) throw new UnauthorizedException('Não autenticado.');
+    const payload = verifyJwt(token);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub) as any;
+    if (!user) throw new UnauthorizedException('Sessão inválida.');
+    return { user: this.publicUser(user) };
+  }
 }
 @Controller() class Routes {
   constructor(private readonly b: Business) {}
   @Get('health') health(){return {status:'ok',service:'nest-business-api'};}
+  @Get('auth/config') getAuthConfig(){return this.b.getAuthConfig();}
+  @Post('auth/config') @HttpCode(200) saveAuthConfig(@Body() body:any){return this.b.saveAuthConfig(body);}
+  @Post('auth/register') register(@Body() body:any){return this.b.register(body);}
+  @Post('auth/login') @HttpCode(200) login(@Body() body:any){return this.b.login(body);}
+  @Post('auth/google') @HttpCode(200) google(@Body() body:any){return this.b.googleAuth(body);}
+  @Get('auth/me') me(@Headers('authorization') auth?:string){return this.b.me(auth);}
   @Get('requests') list(){return this.b.list();}
   @Post('requests') create(@Body() body:any){return this.b.create(body);}
   @Get('requests/:id') detail(@Param('id') id:string){return this.b.get(id);}

@@ -1,85 +1,828 @@
 "use client";
 
-import { API, brl, referenceProduct, safeUrl, requestJson, type Status, type Product, type Reputation, type PurchaseRequest, type Metrics, type Dashboard, type AgentEvent } from "./contracts";
 import Link from "next/link";
-import LiveDemoModal from "./LiveDemoModal";
-import LiveChatModal from "./LiveChatModal";
-import SideDrawer from "./SideDrawer";
+import { useEffect, useState } from "react";
+import {
+  Activity,
+  Award,
+  BarChart3,
+  Bot,
+  CalendarCheck,
+  CheckCircle2,
+  ClipboardCheck,
+  Command,
+  Cpu,
+  Database,
+  FileCheck2,
+  FolderOpen,
+  Globe2,
+  Layers,
+  Link2,
+  Lock,
+  MessageSquare,
+  RefreshCw,
+  Scale,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  TrendingDown,
+  Users,
+  Zap,
+} from "lucide-react";
+import { requestJson, type AuthUser, type Dashboard } from "./contracts";
 
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { Activity, ArrowDownRight, ArrowRight, BarChart3, CircleDollarSign, Command, ExternalLink, Layers3, Plus, RefreshCw, Settings, ShieldCheck, Sparkles } from "lucide-react";
-
-const columns: { status: Status; name: string; color: string }[] = [{ status: "TODO", name: "Na fila / pendências", color: "bg-slate-400" }, { status: "CALLING", name: "Pesquisa e compliance", color: "bg-blue-500" }, { status: "NEGOTIATING", name: "Aguardando cotação", color: "bg-amber-500" }, { status: "DONE", name: "Concluídas", color: "bg-emerald-500" }];
-const empty: Dashboard = { runs: [], metrics: { hard_savings: "0.00", cost_avoidance: "0.00", final_spend: "0.00", completed_count: 0, active_count: 0, verified_suppliers_count: 0, pending_tco_count: 0 }, total_runs: 0, data_mode: "real" };
-function isEvent(value: unknown): value is AgentEvent { const row = value as AgentEvent; return !!row && Number.isSafeInteger(row.id) && typeof row.run_id === "string" && typeof row.message === "string" && typeof row.created_at === "string"; }
-function decode(value: unknown): Dashboard {
-  const data = value as Dashboard;
-  const money = (item: unknown) => typeof item === "string" && /^-?\d+(\.\d{1,2})?$/.test(item);
-  if (!data || data.data_mode !== "real" || !Array.isArray(data.runs) || !data.metrics || !money(data.metrics.hard_savings) || !money(data.metrics.cost_avoidance) || !money(data.metrics.final_spend) || !data.runs.every(row => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(row.id) && columns.some(column => column.status === row.status) && Array.isArray(row.sources) && row.sources.every(source => money(source.price) && !!safeUrl(source.product_url)) && Array.isArray(row.reputations) && Array.isArray(row.errors))) throw new Error("Resposta incompatível com o contrato de dados reais.");
-  return data;
+interface HoverCardProps {
+  href?: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  description: string;
 }
-function useProcurement() {
-  const [data, setData] = useState<Dashboard>(empty);
-  const [connection, setConnection] = useState<"loading" | "live" | "offline">("loading");
-  const [error, setError] = useState("");
-  const [syncing, setSyncing] = useState(false);
-  const mounted = useRef(false);
-  const pending = useRef<AbortController | null>(null);
-  const refresh = useCallback(async () => {
-    if (pending.current) return;
-    const controller = new AbortController(); pending.current = controller;
-    const timer = setTimeout(() => controller.abort(), 10000); setSyncing(true);
-    try {
-      const next = decode(await requestJson("/godmode/dashboard", { signal: controller.signal }));
-      if (mounted.current && pending.current === controller) { setData(next); setConnection("live"); setError(""); }
-    } catch (cause) { if (mounted.current && pending.current === controller) { setConnection("offline"); setError(cause instanceof Error ? cause.message : "API indisponível."); } }
-    finally { clearTimeout(timer); if (pending.current === controller) { pending.current = null; if (mounted.current) setSyncing(false); } }
-  }, []);
+
+function NexoHoverCard({ href, icon: Icon, title, description }: HoverCardProps) {
+  const inner = (
+    <div className="group flex h-full flex-col rounded-[20px] bg-white p-[22px] text-left shadow-[0_0_10px_0_rgba(0,0,0,0.45)] transition-all duration-300 hover:-translate-y-1 hover:bg-[linear-gradient(0deg,#415AFF_0%,#019CFD_100%)]">
+      <div className="mb-4 flex size-[62px] items-center justify-center rounded-full bg-[#019EFD] text-white transition-colors duration-300 group-hover:bg-white group-hover:text-[#415AFF]">
+        <Icon size={30} />
+      </div>
+      <h3 className="mb-3 text-[19px] font-black leading-snug text-[#019EFD] transition-colors duration-300 group-hover:text-white">
+        {title}
+      </h3>
+      <p className="text-[14px] font-normal leading-relaxed text-[#121212] transition-colors duration-300 group-hover:text-white/95">
+        {description}
+      </p>
+    </div>
+  );
+
+  if (href) {
+    return (
+      <a href={href} className="block h-full no-underline">
+        {inner}
+      </a>
+    );
+  }
+  return inner;
+}
+
+function BluePillButton({ href, label }: { href: string; label: string }) {
+  return (
+    <div className="mt-10 flex w-full justify-center">
+      <Link
+        href={href}
+        className="inline-flex w-full max-w-[560px] items-center justify-center rounded-[50px] bg-[#049DFD] px-8 py-[15px] text-center text-[16px] font-extrabold text-white shadow-lg shadow-[#049DFD]/25 transition-all duration-200 hover:scale-105 hover:bg-[#35A6DF] sm:px-[60px] sm:text-[20px]"
+      >
+        {label}
+      </Link>
+    </div>
+  );
+}
+
+function WhitePillButton({ href, label, compact = false }: { href: string; label: string; compact?: boolean }) {
+  return (
+    <Link
+      href={href}
+      className={`inline-flex items-center justify-center rounded-[50px] bg-white font-extrabold text-[#049DFD] shadow-lg transition-all duration-200 hover:scale-105 hover:bg-[#35A6DF] hover:text-white ${
+        compact
+          ? "px-7 py-[11px] text-[15px] sm:px-[44px] sm:text-[16px]"
+          : "w-full max-w-[560px] px-8 py-[15px] text-center text-[16px] sm:px-[60px] sm:text-[20px]"
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
+
+function ModuleBadge({ text }: { text: string }) {
+  return (
+    <div className="mb-4 inline-flex w-[175px] items-center justify-center rounded-[50px] border-2 border-white bg-[#019EFDC7] px-[10px] py-[10px] shadow-md">
+      <span className="text-[20px] font-normal leading-none text-white">{text}</span>
+    </div>
+  );
+}
+
+function NexoBrandLogo({ light = true }: { light?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className={`flex size-10 items-center justify-center rounded-xl shadow-md ${
+          light ? "bg-white text-[#049DFD]" : "bg-[#049DFD] text-white"
+        }`}
+      >
+        <Command size={21} strokeWidth={2.5} />
+      </span>
+      <div className="leading-none">
+        <span className="text-[28px] font-black tracking-[-0.06em] text-white">
+          nexo<span className={light ? "text-white" : "text-[#019EFD]"}>.</span>
+        </span>
+        <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-[0.2em] text-white/80">
+          Procurement Intelligence
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export default function LandingPage() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null);
+  const [totalRuns, setTotalRuns] = useState<number>(0);
+
   useEffect(() => {
-    mounted.current = true; void refresh();
-    const interval = setInterval(() => { if (!document.hidden) void refresh(); }, 5000);
-    const visible = () => { if (!document.hidden) void refresh(); }; document.addEventListener("visibilitychange", visible);
-    return () => { mounted.current = false; clearInterval(interval); pending.current?.abort(); pending.current = null; document.removeEventListener("visibilitychange", visible); };
-  }, [refresh]);
-  return { data, connection, error, syncing, refresh };
-}
+    let mounted = true;
+    void requestJson("/auth/me")
+      .then((res: any) => {
+        if (mounted && res?.user) setUser(res.user as AuthUser);
+      })
+      .catch(() => {});
 
-function SectionTitle({ eyebrow, title, children }: { eyebrow: string; title: string; children?: ReactNode }) { return <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{eyebrow}</p><h2 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h2></div>{children}</div>; }
-function ReputationBadge({ reputation }: { reputation?: Reputation }) {
-  return <span title={reputation?.reason} className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[9px] font-medium ${reputation?.verified ? reputation.approved ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}><ShieldCheck size={10} />{reputation?.verified ? `${reputation.score}/10 · ${reputation.label}` : "Reputação não verificada"}</span>;
-}
-function ProductLink({ source, children }: { source: Product; children?: ReactNode }) { return <a href={safeUrl(source.product_url)} target="_blank" rel="noreferrer" className="inline-flex items-start gap-1 text-[11px] font-medium text-blue-700 hover:underline">{children || source.supplier_name}<ExternalLink size={11} className="mt-0.5 shrink-0" /></a>; }
-function SavingsDashboard({ data, loading, available }: { data: Metrics; loading: boolean; available: boolean }) {
-  const cards = [{ title: "Hard Savings", value: data.hard_savings, detail: "(Preço inicial − final) × quantidade", icon: CircleDollarSign, color: "text-emerald-300" }, { title: "Cost Avoidance", value: data.cost_avoidance, detail: "(Média de mercado − final) × quantidade", icon: ShieldCheck, color: "text-sky-300" }, { title: "Final Negotiated Amount", value: data.final_spend, detail: `${data.completed_count} cotações · produtos + frete + taxas · sem pagamentos`, icon: BarChart3, color: "text-indigo-300" }];
-  return <section aria-label="Indicadores de economia" className="grid gap-4 lg:grid-cols-3">{cards.map(card => <article key={card.title} className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#111827] p-6 text-white shadow-lg shadow-slate-900/10 backdrop-blur-xl"><div className="absolute -right-10 -top-12 size-40 rounded-full bg-blue-500/10 blur-3xl" /><div className="relative flex items-center justify-between"><h2 className="text-[13px] font-medium text-slate-300">{card.title}</h2><card.icon size={18} className={card.color} /></div><p className="numeric relative my-5 break-words text-3xl font-semibold tracking-tight">{loading ? <span className="inline-block h-9 w-40 animate-pulse rounded bg-white/10" /> : !available ? "Indisponível" : brl(card.value)}</p><p className={`mb-2 flex items-center gap-1.5 text-[10px] ${card.color}`}><ArrowDownRight size={12} />{data.completed_count ? "Baseado em cotação final registrada" : "Aguardando cotação final real"}</p><p className="text-[10px] leading-relaxed text-slate-400">{card.detail}</p></article>)}</section>;
-}
-function PurchaseRequestCard({ row, selected, onSelect, onRetry, retrying }: { row: PurchaseRequest; selected: boolean; onSelect: () => void; onRetry: () => void; retrying: boolean }) {
-  const source = referenceProduct(row);
-  const reputation = row.reputations.find(item => item.supplier_domain === source?.supplier_domain);
-  const blocked = ["blocked", "failed"].includes(row.stage);
-  return <article onClick={event => { if (!(event.target as HTMLElement).closest("button, a")) onSelect(); }} className={`min-w-0 cursor-pointer rounded-xl border bg-white p-3.5 shadow-sm transition ${selected ? "border-blue-400 ring-2 ring-blue-100" : "border-slate-200 hover:border-blue-200"}`}><button onClick={onSelect} className="w-full text-left" aria-pressed={selected}><div className="mb-2 flex justify-between text-[9px] text-slate-400"><span>#{String(row.id).padStart(3, "0")}</span><span>{row.qty.toLocaleString("pt-BR")} unidades</span></div><h3 className="break-words text-xs font-semibold leading-relaxed text-slate-900">{row.item}</h3>{row.mode === "sandbox" && <span className="mt-2 inline-flex rounded bg-violet-50 px-2 py-1 text-[9px] font-bold text-violet-700">SANDBOX · seu Telegram</span>}</button>{source ? <div className="mt-3 space-y-2"><ProductLink source={source} /><p className="text-[9px] text-slate-400">{row.selected_product_url ? "Fornecedor selecionado" : "Menor preço coletado · seleção pendente"}</p><ReputationBadge reputation={reputation} />{safeUrl(reputation?.url) && <a href={safeUrl(reputation?.url)} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-blue-600">Ver página no ReclameAqui<ExternalLink size={10} /></a>}</div> : <p className="mt-3 text-[10px] leading-relaxed text-slate-400">{blocked ? "Nenhuma oferta verificável disponível." : row.status === "DONE" ? "Solicitação concluída." : row.status === "NEGOTIATING" ? "Cotação recebida; detalhes não disponíveis nesta API." : "Pesquisa e negociação em andamento."}</p>}<div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3"><div><p className="text-[9px] text-slate-400">Preço de mercado</p><p className="numeric mt-1 text-[11px] font-semibold text-slate-700">{brl(source?.price)}</p></div><div><p className="text-[9px] text-slate-400">Meta total</p><p className="numeric mt-1 text-[11px] font-semibold text-blue-700">{brl(row.target_price)}</p></div></div>{row.audit && row.hard_savings !== null && <p className="mt-3 text-[10px] font-medium text-emerald-700">{row.mode === "sandbox" ? "Economia do teste" : "Hard Savings"}: {brl(row.hard_savings)}</p>}{blocked && <div className="mt-3 border-t border-slate-100 pt-3"><p className="mb-2 text-[10px] text-amber-700">Pesquisa requer atenção</p>{row.notice && <p className="mb-3 line-clamp-3 text-[10px] leading-relaxed text-slate-500">{row.notice}</p>}<button onClick={onRetry} disabled={retrying} className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 disabled:opacity-50"><RefreshCw size={11} className={retrying ? "animate-spin" : ""} />Tentar novamente</button></div>}</article>;
-}
-function KanbanBoard({ rows, selectedId, select, retry, retrying }: { rows: PurchaseRequest[]; selectedId?: string; select: (id: string) => void; retry: (id: string) => void; retrying: string | null }) {
-  return <section id="kanban" className="scroll-mt-6"><SectionTitle eyebrow="Pipeline de compras" title="Da pesquisa à cotação"><span className="text-[10px] text-slate-400">{rows.length} solicitações · dados persistidos</span></SectionTitle><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{columns.map(column => { const cards = rows.filter(row => row.status === column.status); return <section key={column.status} aria-label={column.name} className="min-w-0 rounded-2xl border border-slate-200/80 bg-slate-50 p-3"><div className="mb-3 flex items-center gap-2 px-1 py-1"><span className={`size-1.5 rounded-full ${column.color}`} /><h3 className="text-[11px] font-semibold text-slate-600">{column.name}</h3><span className="ml-auto rounded bg-white px-1.5 text-[10px] text-slate-400">{cards.length}</span></div><div className="max-h-[440px] space-y-3 overflow-y-auto p-0.5">{cards.map(row => <PurchaseRequestCard key={row.id} row={row} selected={row.id === selectedId} onSelect={() => select(row.id)} onRetry={() => retry(row.id)} retrying={retrying === row.id} />)}{!cards.length && <p className="flex min-h-24 items-center justify-center text-[10px] text-slate-400">Nenhuma solicitação nesta etapa</p>}</div></section>; })}</div></section>;
-}
-export default function Page() {
-  const { data, connection, error, syncing, refresh } = useProcurement();
-  const [requestMode, setRequestMode] = useState<"live" | "sandbox">("live");
-  const [chatId, setChatId] = useState<string | null>(null);
-  const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null); const [open, setOpen] = useState(false); const [retrying, setRetrying] = useState<string | null>(null); const [actionError, setActionError] = useState("");
-  async function retry(id: string) { if (retrying !== null || connection !== "live") return; setRetrying(id); setActionError(""); try { await requestJson(`/request/${id}/retry`, { method: "POST" }); await refresh(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Não foi possível retomar."); } finally { setRetrying(null); } }
-  return <div className="min-h-screen bg-[#f5f7fb] text-slate-900 [color-scheme:light]"><a href="#dashboard" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Ir para o conteúdo</a>
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-[218px] flex-col border-r border-slate-200/80 bg-white px-5 py-7 xl:flex"><a href="/" className="flex items-center gap-2.5 px-2 text-[28px] font-bold tracking-[-0.07em]"><span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white"><Command size={19} /></span>nexo<span className="text-blue-600">.</span></a><p className="mb-10 ml-12 mt-1 text-[8px] font-semibold uppercase tracking-[0.2em] text-slate-400">Procurement intelligence</p><p className="mb-3 px-3 text-[9px] font-semibold uppercase tracking-[0.15em] text-slate-400">Workspace</p><nav className="space-y-1 text-xs"><a href="#dashboard" className="flex items-center gap-3 rounded-xl bg-blue-50 px-3 py-3 font-semibold text-blue-700"><Layers3 size={17} />Visão geral</a><a href="#kanban" className="flex items-center gap-3 rounded-xl px-3 py-3 text-slate-500 hover:bg-slate-50"><Activity size={17} />Solicitações<span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px]">{data.total_runs}</span></a><Link href="/settings" className="flex items-center gap-3 rounded-xl px-3 py-3 text-slate-500 hover:bg-slate-50"><Settings size={17} />Conexões e contatos</Link></nav><div className="mt-auto rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4"><span className="mb-2 inline-flex rounded bg-blue-100 px-1.5 py-0.5 text-[8px] font-bold tracking-wider text-blue-700">DADOS REAIS</span><p className="text-xs font-semibold">Cada preço tem uma fonte.</p><p className="mt-2 text-[10px] leading-relaxed text-slate-500">Links, horários de coleta e resultados de reputação disponíveis para conferência.</p></div><div className="mt-5 flex items-center gap-2 px-2"><span className="flex size-8 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600">CP</span><div><p className="text-[10px] font-semibold">Equipe de compras</p><p className="text-[9px] text-slate-400">Workspace local</p></div></div></aside>
-    <div className="xl:ml-[218px]"><header className="flex min-h-16 items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 sm:px-8"><div className="flex items-center gap-2 text-[11px]"><span className="text-xl font-bold tracking-tight text-blue-600 xl:hidden">nexo.</span><span className="hidden text-slate-400 sm:inline">Workspace /</span><span className="font-medium text-slate-700">Inteligência de compras</span></div><div className="flex items-center gap-3"><Link href="/settings" aria-label="Configurações" className="rounded-lg p-2 text-slate-500 hover:bg-slate-50"><Settings size={16} /></Link><span className={`inline-flex items-center gap-1.5 text-[10px] ${connection === "live" ? "text-emerald-600" : "text-amber-600"}`}><span className="size-1.5 rounded-full bg-current" />{connection === "live" ? "API conectada" : connection === "offline" ? "Sem conexão" : "Conectando…"}</span><button onClick={() => void refresh()} disabled={syncing} aria-label="Atualizar dados" className="rounded-lg border border-slate-200 p-2 text-slate-400 hover:text-blue-600"><RefreshCw size={13} className={syncing ? "animate-spin" : ""} /></button></div></header>
-      <main id="dashboard" className="mx-auto max-w-[1700px] space-y-6 p-4 sm:p-7 lg:p-8"><section className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 to-blue-400 px-6 py-7 text-white sm:px-8"><div className="pointer-events-none absolute -right-6 -top-24 size-80 rounded-full border-[45px] border-white/[0.06]" /><div className="pointer-events-none absolute right-40 top-24 size-48 rounded-full border-[30px] border-white/[0.05]" /><div className="relative flex flex-wrap items-center justify-between gap-6"><div><div className="mb-3 flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-blue-100"><Sparkles size={13} />Inteligência que compra melhor</div><h1 className="text-[26px] font-semibold leading-tight tracking-tight sm:text-[32px]">Menos custo. Mais clareza.</h1><p className="mt-3 max-w-xl text-xs leading-relaxed text-blue-100">Pesquise o mercado, conheça os fornecedores e acompanhe cada decisão.</p></div><button onClick={() => { setRequestMode("live"); setOpen(true); }} disabled={connection !== "live"} className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-xs font-semibold text-blue-700 shadow-lg shadow-blue-900/10 hover:bg-blue-50 disabled:opacity-50"><Plus size={17} />Nova solicitação<ArrowRight size={15} className="ml-3" /></button></div><div className="relative mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/15 pt-4 text-[10px] text-blue-100"><span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-emerald-300" />{data.metrics.active_count} pesquisas em andamento</span><span>{data.metrics.verified_suppliers_count} fornecedores com preços coletados</span><span className="sm:ml-auto">Preços reais · testes identificados como Sandbox</span></div></section>
+    void requestJson("/godmode/dashboard")
+      .then((res: any) => {
+        const d = res as Dashboard;
+        if (mounted && d) {
+          setApiOnline(true);
+          setTotalRuns(d.total_runs ?? 0);
+        }
+      })
+      .catch(() => {
+        if (mounted) setApiOnline(false);
+      });
 
-        {(connection === "offline" || actionError) && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900"><span>{actionError || error} Os dados recebidos permanecem visíveis.</span><button onClick={() => void refresh()} className="font-semibold underline">Tentar novamente</button></div>}
-        <div><SavingsDashboard data={data.metrics} loading={connection === "loading"} available={data.metrics_available !== false} /><p className="mt-3 text-[10px] leading-relaxed text-slate-400">Economias negociadas nos produtos, calculadas por unidade × quantidade. O valor final inclui frete e taxas; não representa pagamento realizado. Hard Savings e Cost Avoidance se sobrepõem; não somar. Testes ficam fora dos indicadores reais.</p>{data.metrics.pending_tco_count > 0 && <p className="mt-2 text-[10px] text-amber-700">{data.metrics.pending_tco_count} cotação(ões) com bases de TCO incompletas.</p>}</div>
-        <KanbanBoard rows={data.runs} selectedId={selectedId ?? undefined} select={id => { setSelectedId(id); setDrawerId(id); }} retry={id => void retry(id)} retrying={retrying} />
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-violet-200 bg-white p-5"><div><h2 className="text-sm font-semibold text-slate-900">Live Demo Sandbox</h2><p className="mt-1 text-xs text-slate-500">Você representa o fornecedor pelo celular. Mensagens reais, indicadores de teste separados.</p></div><button onClick={() => { setRequestMode("sandbox"); setOpen(true); }} disabled={connection !== "live"} className="rounded-xl bg-blue-600 px-4 py-3 text-xs font-semibold text-white disabled:opacity-50">Testar no meu Telegram</button></section>
-        <footer className="flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-4 text-[9px] text-slate-400"><span>Nexo · Procurement Intelligence</span><span>Exibindo {data.runs.length} de {data.total_runs} solicitações</span><span>Atualização a cada 5s</span></footer>
-      </main>
-    </div><SideDrawer row={data.runs.find(r => r.id === drawerId) || null} close={() => setDrawerId(null)} openChat={() => setChatId(drawerId)} decided={() => { void refresh(); }} /><LiveChatModal sandbox={data.runs.find(r => r.id === chatId)?.mode === "sandbox"} requestId={chatId} close={() => setChatId(null)} /><LiveDemoModal mode={requestMode} open={open} close={() => setOpen(false)} created={async id => { setSelectedId(id); await refresh(); }} />
-  </div>;
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const primaryHref = user ? "/dashboard" : "/login";
+  const ctaText = user ? "Acessar Painel Nexo Agora" : "Automatize seu Processo de Compras";
+
+  return (
+    <div className="min-h-screen bg-white text-[#121212] [color-scheme:light] selection:bg-[#019EFD] selection:text-white">
+      {/* =====================================================================
+          SECTION 1: HERO
+          Gradient linear-gradient(90deg, #059FFD 0%, #4B53FD 100%)
+          Bottom triangle SVG shape divider
+         ===================================================================== */}
+      <section
+        className="relative flex min-h-[82vh] flex-col justify-between overflow-hidden px-5 pb-20 pt-6 text-white"
+        style={{
+          backgroundImage: "linear-gradient(90deg, #059FFD 0%, #4B53FD 100%)",
+        }}
+      >
+        {/* Subtle decorative geometric rings matching Nexo dashboard banner */}
+        <div className="pointer-events-none absolute -right-16 -top-28 size-[420px] rounded-full border-[55px] border-white/[0.06]" />
+        <div className="pointer-events-none absolute -left-20 bottom-10 size-[320px] rounded-full border-[40px] border-white/[0.05]" />
+
+        {/* Top Header Row inside Hero */}
+        <header className="relative z-10 mx-auto flex w-full max-w-[1140px] flex-wrap items-center justify-between gap-4 pb-6">
+          <Link href="/" className="transition-transform duration-200 hover:scale-105">
+            <NexoBrandLogo light />
+          </Link>
+
+          <nav className="hidden items-center gap-6 text-[14px] font-semibold text-white/95 lg:flex">
+            <a href="#modulo-1" className="transition hover:text-white hover:underline">
+              Descoberta IA
+            </a>
+            <a href="#modulo-2" className="transition hover:text-white hover:underline">
+              Compliance & TCO
+            </a>
+            <a href="#modulo-3" className="transition hover:text-white hover:underline">
+              Telegram Bot
+            </a>
+            <a href="#modulo-4" className="transition hover:text-white hover:underline">
+              Agente Analítico
+            </a>
+            <a href="#beneficios" className="transition hover:text-white hover:underline">
+              Benefícios
+            </a>
+          </nav>
+
+          <div className="flex items-center gap-3">
+            {!user && (
+              <Link
+                href="/register"
+                className="hidden rounded-[50px] border-2 border-white px-6 py-[9px] text-[15px] font-extrabold text-white transition-all duration-200 hover:scale-105 hover:bg-white hover:text-[#049DFD] sm:inline-flex"
+              >
+                Criar Conta
+              </Link>
+            )}
+            <WhitePillButton
+              href={primaryHref}
+              label={user ? `Dashboard (${user.name.split(" ")[0]})` : "Entrar na Plataforma"}
+              compact
+            />
+          </div>
+        </header>
+
+        {/* Hero Center Content */}
+        <div className="relative z-10 mx-auto my-auto flex w-full max-w-[1140px] flex-col items-center py-10 text-center">
+          <h1 className="text-[42px] font-black leading-[1.08] tracking-tight text-white sm:text-[62px] lg:text-[75px]">
+            Conheça o Nexo
+          </h1>
+          <p className="mt-6 max-w-[92%] text-[15px] font-medium leading-relaxed text-white sm:text-[17px]">
+            Uma plataforma de Inteligência de Compras com IA que conecta descoberta autônoma de fornecedores, auditoria de reputação no ReclameAqui, negociação omnichannel via Telegram e cálculo determinístico de TCO para automatizar cotações B2B, reduzir esforço manual e gerar economia real comprovada — trazendo mais eficiência, controle operacional e valor estratégico para sua equipe de compras.
+          </p>
+
+          <div className="mt-10 flex w-full flex-col items-center justify-center gap-4 sm:flex-row">
+            <WhitePillButton href={primaryHref} label={ctaText} />
+          </div>
+        </div>
+
+        {/* Bottom Triangle SVG Shape Divider */}
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 w-full overflow-hidden leading-none"
+          aria-hidden="true"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 1000 100"
+            preserveAspectRatio="none"
+            className="block h-[40px] w-full"
+          >
+            <path className="fill-white" d="M500,98.9L0,6.1V0h1000v6.1L500,98.9z" />
+          </svg>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 2: PLATAFORMA UNIFICADA
+          White background, 4 clickable hover-gradient cards + Blue Pill CTA
+         ===================================================================== */}
+      <section className="bg-white px-5 pb-[70px] pt-[50px]">
+        <div className="mx-auto max-w-[1140px]">
+          <div className="mx-auto max-w-[90%] text-center">
+            <h2 className="text-[28px] font-semibold leading-tight text-black sm:text-[40px]">
+              Uma Plataforma Unificada de Inteligência em Compras
+            </h2>
+            <p className="mt-4 pb-6 text-[15px] font-normal leading-relaxed text-[#404040] sm:text-[19px]">
+              O Nexo é uma plataforma modular projetada para otimizar compras corporativas e cotações B2B. Ele elimina buscas manuais repetitivas, integra agentes autônomos em LangGraph, verifica reputação de fornecedores, automatiza negociações via Telegram e aplica Inteligência Artificial para melhorar a governança, a conformidade e o desempenho financeiro (TCO).
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <NexoHoverCard
+              href="#modulo-1"
+              icon={Search}
+              title="Descoberta Autônoma"
+              description="Nossa solução pesquisa automaticamente o mercado público, extraindo preços reais de produtos com links, método de coleta e hash SHA-256."
+            />
+            <NexoHoverCard
+              href="#modulo-2"
+              icon={ShieldCheck}
+              title="Compliance & TCO Real"
+              description="Nossa solução gerencia todo o ciclo de validação, desde a reputação no ReclameAqui até o cálculo completo de Produto + Frete + Taxas."
+            />
+            <NexoHoverCard
+              href="#modulo-3"
+              icon={MessageSquare}
+              title="Negociação Omnichannel"
+              description="Nossa solução substitui trocas manuais de mensagens por um bot Telegram inteligente que coleta e confirma cotações em tempo real."
+            />
+            <NexoHoverCard
+              href="#modulo-4"
+              icon={Bot}
+              title="Agente Analítico"
+              description="Nosso Agente de IA em LangGraph + Gemini atua em todas as etapas críticas da compra, garantindo Hard Savings e Cost Avoidance auditáveis."
+            />
+          </div>
+
+          <BluePillButton href={primaryHref} label={ctaText} />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 3: IMPACT BANNER
+          Gradient background linear-gradient(0deg, #019EFD 0%, #415AFF 100%)
+          Left #101827 dark box with 80px numbers + Right check list
+         ===================================================================== */}
+      <section
+        className="px-5 py-[60px] text-white"
+        style={{ backgroundImage: "linear-gradient(0deg, #019EFD 0%, #415AFF 100%)" }}
+      >
+        <div className="mx-auto grid max-w-[1140px] items-center gap-8 lg:grid-cols-12">
+          {/* Left Dark Card (#101827) */}
+          <div className="rounded-[20px] bg-[#101827] px-7 py-8 shadow-2xl lg:col-span-6">
+            <h2 className="text-center text-[24px] font-extrabold leading-snug text-white sm:text-[33px]">
+              Não é apenas IA.
+              <br />É eficiência e resultados.
+            </h2>
+
+            <div className="mt-8 grid grid-cols-2 gap-4 text-center">
+              <div>
+                <p className="numeric text-[48px] font-black leading-none text-white sm:text-[80px]">90%</p>
+                <p className="mt-3 text-[14px] font-semibold text-white sm:text-[16px]">
+                  Redução de tempo em cotações
+                </p>
+              </div>
+              <div>
+                <p className="numeric text-[48px] font-black leading-none text-white sm:text-[80px]">100%</p>
+                <p className="mt-3 text-[14px] font-semibold text-white sm:text-[16px]">
+                  TCO auditado com fonte real
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column */}
+          <div className="space-y-6 px-2 lg:col-span-6">
+            <h2 className="text-[28px] font-semibold leading-tight text-white sm:text-[45px]">
+              Integração perfeita <br />
+              em todas as etapas.
+            </h2>
+
+            <ul className="space-y-4 text-[15px] font-medium leading-relaxed text-white sm:text-[17px]">
+              <li className="flex items-start gap-3">
+                <CheckCircle2 size={22} className="mt-1 shrink-0 text-white" />
+                <span>
+                  Simplifique o processo inicial de requisição e elimine cotações incompletas, liberando sua equipe de suprimentos para se concentrar em negociações estratégicas de maior valor.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <CheckCircle2 size={22} className="mt-1 shrink-0 text-white" />
+                <span>
+                  Inteligência Artificial aplicada à gestão de compras. Para garantir a robustez e a precisão do nosso Agente, combinamos busca real na web, extração determinística e modelos LLM de última geração.
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 4: MÓDULO 01 (id="modulo-1")
+         ===================================================================== */}
+      <section id="modulo-1" className="scroll-mt-10 bg-white px-6 pb-[50px] pt-[45px]">
+        <div className="mx-auto max-w-[1140px]">
+          <ModuleBadge text="Módulo 01" />
+          <h2 className="text-[32px] font-semibold leading-tight text-black sm:text-[42px]">
+            Descoberta Autônoma de Fornecedores
+          </h2>
+          <h3 className="mt-1 text-[18px] font-semibold text-[#7B7B7B] sm:text-[30px]">
+            Pesquisa de mercado e extração estruturada
+          </h3>
+          <p className="mt-4 text-[15px] font-normal leading-relaxed text-[#2B2B2B] sm:text-[17px]">
+            A Descoberta Autônoma conecta solicitações de compra a agentes inteligentes em LangGraph que vasculham fontes públicas, extraem ofertas reais (Schema.org, Microdata, OpenGraph) e registram evidências auditáveis.
+          </p>
+
+          {/* 2-Column Icon List with dividers */}
+          <div className="mt-8 grid gap-8 md:grid-cols-2">
+            <ul className="divide-y divide-[#ddd]">
+              {[
+                { icon: ClipboardCheck, text: "Cadastro estruturado de item, especificações, quantidade e CEP" },
+                { icon: Search, text: "Busca pública automatizada via Tavily com controle de créditos" },
+                { icon: FileCheck2, text: "Extração determinística de preços via Schema.org e OpenGraph" },
+                { icon: Lock, text: "Assinatura criptográfica SHA-256 de cada página de oferta coletada" },
+              ].map(item => (
+                <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
+                  <item.icon size={22} className="shrink-0 text-[#019EFD]" />
+                  <span>{item.text}</span>
+                </li>
+              ))}
+            </ul>
+            <ul className="divide-y divide-[#ddd]">
+              {[
+                { icon: FolderOpen, text: "Rastreamento completo de candidatos analisados e motivos de descarte" },
+                { icon: CalendarCheck, text: "Registro de timestamp exato de observação da oferta na loja" },
+                { icon: ShieldAlert, text: "Detecção automática de bloqueios anti-bot (HTTP 403) com aviso claro" },
+                { icon: Activity, text: "Atualização em tempo real no quadro Kanban a cada 5 segundos" },
+              ].map(item => (
+                <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
+                  <item.icon size={22} className="shrink-0 text-[#019EFD]" />
+                  <span>{item.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Benefícios do Módulo 01 */}
+          <div className="mt-10">
+            <h3 className="mb-6 text-[28px] font-extrabold text-black sm:text-[40px]">Benefícios</h3>
+            <div className="grid gap-6 md:grid-cols-3">
+              <NexoHoverCard
+                icon={Zap}
+                title="Eficiência Operacional e Produtividade"
+                description="A solução automatiza a pesquisa de mercado e reduz drasticamente a cotação manual. Com processos 100% digitais, diminui falhas humanas e acelera a coleta de referências reais."
+              />
+              <NexoHoverCard
+                icon={Users}
+                title="Gestão Completa para o Comprador"
+                description="A equipe deixa de perder horas copiando links de lojas e passa a atuar na análise crítica, negociação e tomada de decisão estratégica com dados estruturados."
+              />
+              <NexoHoverCard
+                icon={Award}
+                title="Transparência e Fonte Verificável"
+                description="Cada preço apresentado possui link direto para a oferta original, método de extração identificado e comprovação íntegra para auditoria interna."
+              />
+            </div>
+          </div>
+
+          <BluePillButton href={primaryHref} label={ctaText} />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 5: MÓDULO 02 (id="modulo-2")
+         ===================================================================== */}
+      <section id="modulo-2" className="scroll-mt-10 bg-white px-6 pb-[50px] pt-[25px]">
+        <div className="mx-auto max-w-[1140px]">
+          <ModuleBadge text="Módulo 02" />
+          <h2 className="text-[32px] font-semibold leading-tight text-black sm:text-[42px]">
+            Compliance, Reputação e Cálculo de TCO
+          </h2>
+          <h3 className="mt-1 text-[18px] font-semibold text-[#7B7B7B] sm:text-[30px]">
+            Zero Decisão no Escuro
+          </h3>
+          <p className="mt-4 text-[15px] font-normal leading-relaxed text-[#2B2B2B] sm:text-[17px]">
+            Automatiza todo o ciclo de validação de propostas e cálculo de{" "}
+            <b>Hard Savings, Cost Avoidance e TCO (Produto + Frete + Taxas)</b> — da consulta de reputação à aprovação final. Maximize a economia sem custos ocultos.
+          </p>
+
+          <div className="mt-8 grid gap-8 md:grid-cols-2">
+            <ul className="divide-y divide-[#ddd]">
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <ClipboardCheck size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Fórmula de TCO Determinística</b>
+                  <br />
+                  Calcula <code className="text-[#019EFD]">qty × unit_price + shipping + fees</code> em centavos inteiros seguros somente quando todos os itens estão confirmados.
+                </span>
+              </li>
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <ShieldCheck size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Verificação de Reputação no ReclameAqui</b>
+                  <br />
+                  Validação em tempo real da nota e índice de solução do domínio do fornecedor antes da compra.
+                </span>
+              </li>
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <RefreshCw size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Trava de Elegibilidade Automática</b>
+                  <br />
+                  Impede decisões sobre propostas com frete pendente, taxas não informadas, prazo incerto ou estoque insuficiente.
+                </span>
+              </li>
+            </ul>
+
+            <ul className="divide-y divide-[#ddd]">
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <Link2 size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Confirmação de Produto e CEP de Destino</b>
+                  <br />
+                  Exige confirmação explícita de que o fornecedor atende exatamente à especificação e entrega no CEP solicitado.
+                </span>
+              </li>
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <Scale size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Ordenação Inteligente de Propostas</b>
+                  <br />
+                  Classifica fornecedores elegíveis por menor TCO crescente e, em caso de empate, por menor prazo de entrega.
+                </span>
+              </li>
+              <li className="flex items-start gap-3.5 py-4 text-[15px] text-black">
+                <TrendingDown size={22} className="mt-1 shrink-0 text-[#019EFD]" />
+                <span>
+                  <b>Auditoria de Economia Real</b>
+                  <br />
+                  Registra o parecer completo da decisão humana, separando testes Sandbox dos indicadores financeiros reais.
+                </span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Benefícios do Módulo 02 */}
+          <div className="mt-10">
+            <h3 className="mb-6 text-[28px] font-extrabold text-black sm:text-[40px]">Benefícios</h3>
+            <div className="grid gap-6 md:grid-cols-3">
+              <NexoHoverCard
+                icon={ShieldCheck}
+                title="Mitigação de Riscos com Fornecedores"
+                description="Evite compras com lojas sem reputação verificada ou com surpresas de frete e impostos após o fechamento do pedido."
+              />
+              <NexoHoverCard
+                icon={BarChart3}
+                title="Governança e Compliance Auditável"
+                description="Controle de concorrência otimista por versão na API NestJS: nenhuma proposta decidida pode ser adulterada retroativamente."
+              />
+              <NexoHoverCard
+                icon={Scale}
+                title="Comparação Justa Pela Base Total"
+                description="Compare propostas na mesma régua: o painel destaca claramente quem tem o menor custo total entregue no seu endereço."
+              />
+            </div>
+          </div>
+
+          <BluePillButton href={primaryHref} label={ctaText} />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 6: MÓDULO 03 (id="modulo-3")
+         ===================================================================== */}
+      <section id="modulo-3" className="scroll-mt-10 bg-white px-6 pb-[50px] pt-[25px]">
+        <div className="mx-auto max-w-[1140px]">
+          <ModuleBadge text="Módulo 03" />
+          <h2 className="text-[32px] font-semibold leading-tight text-black sm:text-[42px]">
+            Negociação Omnichannel via Telegram
+          </h2>
+          <h3 className="mt-1 text-[18px] font-semibold text-[#7B7B7B] sm:text-[30px]">
+            Automação Inteligente de Contato e Cotações
+          </h3>
+          <p className="mt-4 text-[15px] font-normal leading-relaxed text-[#2B2B2B] sm:text-[17px]">
+            Substitui cobranças manuais repetitivas por automação orientada por IA via Webhook Telegram. Alcance níveis inéditos de velocidade, transparência e organização no recebimento de propostas comerciais.
+          </p>
+
+          <div className="mt-8 grid gap-6 md:grid-cols-2">
+            {[
+              {
+                title: "Interpretação em Linguagem Natural",
+                desc: "O fornecedor responde normalmente no chat e o agente Python extrai preço unitário, frete, taxas, prazo e estoque.",
+                icon: Bot,
+              },
+              {
+                title: "Cobrança Automática de Dados Faltantes",
+                desc: "Se o fornecedor esquecer de informar o frete ou prazo, o bot responde automaticamente solicitando apenas os itens pendentes.",
+                icon: MessageSquare,
+              },
+              {
+                title: "Modo Live Demo Sandbox no Celular",
+                desc: "Teste a negociação em tempo real usando seu próprio Telegram como fornecedor, mantendo os dados de teste isolados.",
+                icon: Sparkles,
+              },
+              {
+                title: "Processamento Idempotente e Seguro",
+                desc: "Validação de secret token no gateway, fila de retentativas e proteção contra mensagens duplicadas no SQLite.",
+                icon: Lock,
+              },
+            ].map(box => (
+              <div
+                key={box.title}
+                className="flex items-start gap-4 rounded-[20px] border-2 border-[#019EFD]/30 bg-white p-6 shadow-[0_0_10px_0_rgba(0,0,0,0.12)] transition hover:border-[#019EFD]"
+              >
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#019EFD] text-white">
+                  <box.icon size={22} />
+                </div>
+                <div>
+                  <h4 className="text-[17px] font-bold text-black">{box.title}</h4>
+                  <p className="mt-1 text-[14px] leading-relaxed text-[#404040]">{box.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <BluePillButton href={primaryHref} label={ctaText} />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 7: MÓDULO 04 (id="modulo-4")
+         ===================================================================== */}
+      <section id="modulo-4" className="scroll-mt-10 bg-white px-6 pb-[60px] pt-[25px]">
+        <div className="mx-auto max-w-[1140px]">
+          <ModuleBadge text="Módulo 04" />
+          <h2 className="text-[32px] font-semibold leading-tight text-black sm:text-[42px]">
+            Agente Analítico & Arquitetura
+          </h2>
+          <h3 className="mt-1 text-[18px] font-semibold text-[#7B7B7B] sm:text-[30px]">
+            A Tecnologia Por Trás da Inovação
+          </h3>
+          <p className="mt-4 text-[15px] font-normal leading-relaxed text-[#2B2B2B] sm:text-[17px]">
+            O núcleo de inteligência do Nexo combina três serviços isolados (API NestJS, Agentes Python LangGraph e Next.js) com múltiplos modelos de IA (Gemini 3.8 Flash e Groq Llama 3.3) para analisar propostas com precisão sem precedentes.
+          </p>
+
+          <div className="mt-8 grid gap-8 md:grid-cols-2">
+            <ul className="divide-y divide-[#ddd]">
+              {[
+                { icon: ShieldAlert, text: "Detecção automática de inconsistências e divergências de especificação" },
+                { icon: MessageSquare, text: "Interação em linguagem natural via Telegram ou comando direto /quote" },
+                { icon: Layers, text: "Modo Sandbox isolado para simulação ao vivo de cenários de compra" },
+              ].map(item => (
+                <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
+                  <item.icon size={22} className="shrink-0 text-[#019EFD]" />
+                  <span>{item.text}</span>
+                </li>
+              ))}
+            </ul>
+            <ul className="divide-y divide-[#ddd]">
+              {[
+                { icon: Database, text: "Bancos SQLite separados para dados de negócio e checkpoints de agentes" },
+                { icon: FileCheck2, text: "Relatórios de auditoria e justificativas factuais automatizadas" },
+                { icon: Cpu, text: "Memória tática de fornecedores e histórico de concessões anteriores" },
+              ].map(item => (
+                <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
+                  <item.icon size={22} className="shrink-0 text-[#019EFD]" />
+                  <span>{item.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="mt-10">
+            <h3 className="text-[22px] font-semibold text-black sm:text-[28px]">
+              Inteligência Analítica Multidimensional
+            </h3>
+            <p className="mt-1 text-[15px] text-[#404040]">
+              Nossa IA analisa múltiplas dimensões de cada cotação para fornecer comparativos precisos e insights acionáveis:
+            </p>
+
+            {/* 4 Gradient Boxes */}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                "Preço Unitário & Escala",
+                "Frete & Taxas por CEP",
+                "Reputação ReclameAqui",
+                "Prazo & Estoque Real",
+              ].map(label => (
+                <div
+                  key={label}
+                  className="flex min-h-[90px] items-center justify-center rounded-[20px] px-5 py-6 text-center shadow-lg transition hover:scale-[1.02]"
+                  style={{ backgroundImage: "linear-gradient(0deg, #019EFD 0%, #415AFF 100%)" }}
+                >
+                  <h4 className="text-[18px] font-bold text-white">{label}</h4>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <BluePillButton href={primaryHref} label={ctaText} />
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 8: BENEFÍCIOS DO NEXO (id="beneficios")
+          Background #E9E9E9, 6 Hover-Gradient Cards in 3x2 grid
+         ===================================================================== */}
+      <section id="beneficios" className="scroll-mt-10 bg-[#E9E9E9] px-5 pb-[60px] pt-[70px]">
+        <div className="mx-auto max-w-[1140px]">
+          <div className="text-center">
+            <h2 className="text-[28px] font-bold text-black sm:text-[40px]">
+              Benefícios do Nexo Procurement
+            </h2>
+            <p className="mt-2 text-[16px] text-[#404040]">
+              Uma plataforma abrangente desenvolvida para os desafios reais das operações de compras e cotações B2B.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <NexoHoverCard
+              icon={Layers}
+              title="Arquitetura Modular e Escalável"
+              description="Três serviços desacoplados em containers Docker (API NestJS, Agentes Python e Frontend Next.js) prontos para escalar."
+            />
+            <NexoHoverCard
+              icon={Globe2}
+              title="Integração Omnichannel Fluida"
+              description="Conexão nativa com busca pública Tavily, Google OAuth2 e negociação em tempo real via Webhook Telegram."
+            />
+            <NexoHoverCard
+              icon={Zap}
+              title="Redução de Processos Manuais"
+              description="Elimine planilhas descentralizadas e coletas manuais repetitivas, liberando os compradores para decisões de alto impacto."
+            />
+            <NexoHoverCard
+              icon={Activity}
+              title="Maior Eficiência Operacional"
+              description="Acompanhe todas as solicitações em um pipeline Kanban ao vivo com atualização automática e histórico de mensagens."
+            />
+            <NexoHoverCard
+              icon={ShieldCheck}
+              title="Conformidade e Auditoria Completa"
+              description="Travas determinísticas exigem confirmação de produto, CEP, frete, taxas, prazo e estoque antes de liberar qualquer decisão."
+            />
+            <NexoHoverCard
+              icon={BarChart3}
+              title="Inteligência Financeira para TCO"
+              description="Cálculo transparente de Hard Savings, Cost Avoidance e Custo Total de Propriedade auditado com evidências SHA-256."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 9: FINAL CTA BANNER
+          Background linear-gradient(0deg, #019EFD 0%, #415AFF 100%) + White Pill Button
+         ===================================================================== */}
+      <section
+        className="px-5 pb-[65px] pt-[70px] text-center text-white"
+        style={{ backgroundImage: "linear-gradient(0deg, #019EFD 0%, #415AFF 100%)" }}
+      >
+        <div className="mx-auto flex max-w-[1140px] flex-col items-center">
+          <h2 className="max-w-3xl text-[26px] font-extrabold leading-tight text-white sm:text-[38px]">
+            Transforme suas Operações de Compras com Automação Inteligente
+          </h2>
+          <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-white/95 sm:text-[18px]">
+            Unifique descoberta de fornecedores, auditoria de reputação, negociação via Telegram e cálculo de TCO em uma única plataforma movida por IA. Acesse agora o Nexo.
+          </p>
+
+          <div className="mt-9 flex w-full justify-center">
+            <WhitePillButton href={primaryHref} label={ctaText} />
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================================
+          SECTION 10: FOOTER 100% NEXO
+          Background #101827, Nexo Brand, Módulos, Acesso Rápido & Status da API
+         ===================================================================== */}
+      <footer className="bg-[#101827] px-6 py-12 text-white">
+        <div className="mx-auto max-w-[1140px]">
+          <div className="grid gap-10 md:grid-cols-12">
+            {/* Col 1: Nexo Brand & API Status */}
+            <div className="space-y-4 md:col-span-4">
+              <NexoBrandLogo light={false} />
+              <p className="text-xs leading-relaxed text-slate-300">
+                Plataforma de compras autônomas, análise de reputação de fornecedores, negociação omnichannel e decisão humana assistida com TCO verificável.
+              </p>
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-slate-200">
+                <span
+                  className={`size-2 rounded-full ${
+                    apiOnline === true
+                      ? "bg-emerald-400"
+                      : apiOnline === false
+                      ? "bg-amber-400"
+                      : "bg-[#019EFD]"
+                  }`}
+                />
+                <span>
+                  {apiOnline === true
+                    ? `API Nexo Conectada · ${totalRuns} solicitações`
+                    : apiOnline === false
+                    ? "API Nexo Offline"
+                    : "Verificando status da API…"}
+                </span>
+              </div>
+            </div>
+
+            {/* Col 2: Módulos do Sistema */}
+            <div className="space-y-3 md:col-span-4">
+              <h2 className="text-[20px] font-bold text-white">Módulos do Nexo</h2>
+              <ul className="space-y-2 text-[15px] font-medium text-slate-300">
+                <li>
+                  <a href="#modulo-1" className="transition hover:text-[#019EFD]">
+                    Módulo 01 · Descoberta Autônoma
+                  </a>
+                </li>
+                <li>
+                  <a href="#modulo-2" className="transition hover:text-[#019EFD]">
+                    Módulo 02 · Compliance & TCO Real
+                  </a>
+                </li>
+                <li>
+                  <a href="#modulo-3" className="transition hover:text-[#019EFD]">
+                    Módulo 03 · Negociação via Telegram
+                  </a>
+                </li>
+                <li>
+                  <a href="#modulo-4" className="transition hover:text-[#019EFD]">
+                    Módulo 04 · Agente Analítico
+                  </a>
+                </li>
+                <li>
+                  <a href="#beneficios" className="transition hover:text-[#019EFD]">
+                    Benefícios da Plataforma
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            {/* Col 3: Acesso Rápido & Arquitetura */}
+            <div className="space-y-3 md:col-span-4">
+              <h2 className="text-[20px] font-bold text-white">Acesso Rápido</h2>
+              <ul className="space-y-2 text-[15px] font-medium text-slate-300">
+                <li>
+                  <Link href="/dashboard" className="font-bold text-[#019EFD] hover:underline">
+                    Acessar Dashboard Nexo
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/login" className="transition hover:text-[#019EFD]">
+                    Entrar na Conta
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/register" className="transition hover:text-[#019EFD]">
+                    Criar Conta Corporativa
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/settings" className="transition hover:text-[#019EFD]">
+                    Conexões e Contatos
+                  </Link>
+                </li>
+              </ul>
+              <p className="pt-2 text-xs text-slate-400">
+                Arquitetura ativa: API NestJS + SQLite · Agentes Python (LangGraph + Gemini) · Next.js App Router.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-10 border-t border-white/15 pt-6 text-center text-[12px] text-slate-400">
+            ©2026 Nexo · Inteligência de Compras. Todos os direitos reservados.
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
 }

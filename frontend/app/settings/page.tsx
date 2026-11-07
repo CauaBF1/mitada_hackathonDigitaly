@@ -69,5 +69,5 @@ function SupplierContacts() {
 }
 
 export default function SettingsPage() {
-  return <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-900 [color-scheme:light]"><div className="mx-auto max-w-4xl space-y-6"><Link href="/" className="text-sm font-semibold text-blue-700">← Voltar ao dashboard</Link><header className="rounded-2xl bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white"><h1 className="text-2xl font-semibold">Conexões e contatos</h1><p className="mt-2 text-sm text-blue-100">Configure a pesquisa de mercado e os canais de negociação.</p></header><SearchIntegration /><SupplierContacts /></div></main>;
+  return <main className="min-h-screen bg-slate-50 px-5 py-8 text-slate-900 [color-scheme:light]"><div className="mx-auto max-w-4xl space-y-6"><Link href="/dashboard" className="text-sm font-semibold text-blue-700">← Voltar ao dashboard</Link><header className="rounded-2xl bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white"><h1 className="text-2xl font-semibold">Conexões e contatos</h1><p className="mt-2 text-sm text-blue-100">Configure a pesquisa de mercado e os canais de negociação.</p></header><SearchIntegration /><SupplierContacts /></div></main>;
 }
