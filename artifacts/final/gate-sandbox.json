@@ -1,0 +1,709 @@
+{
+  "mode": "sandbox",
+  "external_dependencies": "CONTROLLED TEST RESPONSES; NOT LIVE SUPPLIERS",
+  "backend_process_restart": true,
+  "metrics": {
+    "hard_savings": "0.00",
+    "cost_avoidance": "0.00",
+    "final_spend": "0.00",
+    "completed_count": 0,
+    "active_count": 0,
+    "verified_suppliers_count": 0,
+    "pending_tco_count": 0
+  },
+  "quote": {
+    "additional_costs": [
+      {
+        "description": "Seguro",
+        "amount": "10"
+      }
+    ],
+    "initial_additional_costs": [
+      {
+        "description": "Seguro",
+        "amount": "20"
+      }
+    ],
+    "initial_offer_evidence": [
+      {
+        "field": "price",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "shipping_fee",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "currency",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "available_qty",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "delivery_days",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "conditions",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "additional_costs",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "acceptance",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      },
+      {
+        "field": "delivery_location",
+        "message_id": 2,
+        "quote": "R$ 110 cada, 100 unidades, frete R$ 200, Seguro R$ 20, 5 dias \u00fateis, Pix, CEP 01001-000"
+      }
+    ],
+    "initial_message_id": 2,
+    "supplier_domain": "example.com",
+    "supplier_name": "FORNECEDOR CONTROLADO 0",
+    "product_name": "Capacete industrial certificado",
+    "quantity": 100,
+    "delivery_location": "01001000",
+    "source_type": "sandbox_supplier",
+    "agreement_status": "confirmed_quote",
+    "request_id": 1,
+    "event_id": "telegram:4",
+    "product_url": "https://example.com/test-product",
+    "initial_price": "110",
+    "final_price": "80",
+    "available_qty": 100,
+    "delivery_time": "5 dias \u00fateis",
+    "conditions": "Confirmo R$ 80 cada, 100 unidades, frete R$ 40, Seguro R$ 10, 5 dias \u00fateis, Pix, CEP 01001-000",
+    "shipping_fee": "40",
+    "initial_shipping_fee": "200",
+    "delivery_days": 5,
+    "delivery_day_type": "business",
+    "initial_tco": "11220.00",
+    "final_tco": "8050.00"
+  },
+  "audit": {
+    "additional_costs": [
+      {
+        "description": "Seguro",
+        "amount": "10"
+      }
+    ],
+    "additional_cost_total": "10.00",
+    "source_type": "sandbox_supplier",
+    "agreement_status": "confirmed_quote",
+    "savings_status": "sandbox",
+    "confidence": "evidence_validated",
+    "missing_information": [],
+    "roi_basis": "unit_price",
+    "deal_closed": true,
+    "final_unit_price": "80",
+    "final_shipping_fee": "40",
+    "final_total_cost": "8050.00",
+    "audit_justification": "Cota\u00e7\u00e3o confirmada: 100 \u00d7 R$ 80.00 + R$ 40.00 de frete + R$ 10.00 de taxas = R$ 8050.00, com prazo de 5 dias \u00fateis. O total atende \u00e0 meta de R$ 8500.00; trata-se de cota\u00e7\u00e3o, sem emiss\u00e3o de pedido ou pagamento.",
+    "shipping_savings": "160.00",
+    "tco_savings": "3170.00",
+    "tco_cost_avoidance": "1950.00",
+    "final_price": "80",
+    "shipping_fee": "40",
+    "delivery_days": 5,
+    "delivery_day_type": "business",
+    "quantity": 100,
+    "product_subtotal": "8000.00",
+    "initial_tco": "11220.00",
+    "final_tco": "8050.00",
+    "market_tco": "10000.00",
+    "hard_savings": "3000.00",
+    "cost_avoidance": "2000.00",
+    "justification": "Cota\u00e7\u00e3o confirmada: 100 \u00d7 R$ 80.00 + R$ 40.00 de frete + R$ 10.00 de taxas = R$ 8050.00, com prazo de 5 dias \u00fateis. O total atende \u00e0 meta de R$ 8500.00; trata-se de cota\u00e7\u00e3o, sem emiss\u00e3o de pedido ou pagamento.",
+    "limitations": [
+      "Negocia\u00e7\u00e3o de teste pessoal; exclu\u00edda do ROI e da mem\u00f3ria de fornecedores reais."
+    ],
+    "evidence_message_ids": [
+      4
+    ],
+    "audited_at": "2026-11-07T15:45:34.610842+00:00"
+  },
+  "trace": [
+    {
+      "id": 1,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "discovery_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:30.799831+00:00",
+      "finished_at": "2026-11-07T15:45:31.053288+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP"
+      },
+      "output": {
+        "quantity": 100,
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": false,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "negotiations": {}
+      },
+      "error_type": null
+    },
+    {
+      "id": 2,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "memory_profiler_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:31.056266+00:00",
+      "finished_at": "2026-11-07T15:45:31.063963+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": false,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "negotiations": {}
+      },
+      "output": {
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ]
+      },
+      "error_type": null
+    },
+    {
+      "id": 3,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "tactical_negotiator_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:31.065554+00:00",
+      "finished_at": "2026-11-07T15:45:31.105714+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": false,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {}
+      },
+      "output": {
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": true,
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 0,
+            "initial_price": null,
+            "initial_tco": null,
+            "last_tactic": {
+              "tco_oferta_atual": null,
+              "distancia_meta_pct": null,
+              "estrategia_aplicada": "SOLICITAR_COTACAO"
+            }
+          }
+        }
+      },
+      "error_type": null
+    },
+    {
+      "id": 4,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "tactical_negotiator_node",
+      "status": "paused",
+      "started_at": "2026-11-07T15:45:31.108237+00:00",
+      "finished_at": "2026-11-07T15:45:31.110076+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": true,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 0,
+            "initial_price": null,
+            "initial_tco": null,
+            "last_tactic": {
+              "tco_oferta_atual": null,
+              "distancia_meta_pct": null,
+              "estrategia_aplicada": "SOLICITAR_COTACAO"
+            }
+          }
+        }
+      },
+      "output": null,
+      "error_type": null
+    },
+    {
+      "id": 5,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "tactical_negotiator_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:34.025369+00:00",
+      "finished_at": "2026-11-07T15:45:34.074003+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "done": false,
+        "initialized": true,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 0,
+            "initial_price": null,
+            "initial_tco": null,
+            "last_tactic": {
+              "tco_oferta_atual": null,
+              "distancia_meta_pct": null,
+              "estrategia_aplicada": "SOLICITAR_COTACAO"
+            }
+          }
+        }
+      },
+      "output": {
+        "reply_id": 2,
+        "done": false,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 1,
+            "initial_price": "110",
+            "initial_tco": "11220.00",
+            "last_tactic": {
+              "tco_oferta_atual": "11220.00",
+              "distancia_meta_pct": "32.00",
+              "estrategia_aplicada": "DESCONTO_VOLUME"
+            }
+          }
+        }
+      },
+      "error_type": null
+    },
+    {
+      "id": 6,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "tactical_negotiator_node",
+      "status": "paused",
+      "started_at": "2026-11-07T15:45:34.078398+00:00",
+      "finished_at": "2026-11-07T15:45:34.080277+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "reply_id": 2,
+        "done": false,
+        "initialized": true,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 1,
+            "initial_price": "110",
+            "initial_tco": "11220.00",
+            "last_tactic": {
+              "tco_oferta_atual": "11220.00",
+              "distancia_meta_pct": "32.00",
+              "estrategia_aplicada": "DESCONTO_VOLUME"
+            }
+          }
+        }
+      },
+      "output": null,
+      "error_type": null
+    },
+    {
+      "id": 7,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "tactical_negotiator_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:34.595729+00:00",
+      "finished_at": "2026-11-07T15:45:34.603455+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "reply_id": 2,
+        "done": false,
+        "initialized": true,
+        "pending_audit": null,
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 1,
+            "initial_price": "110",
+            "initial_tco": "11220.00",
+            "last_tactic": {
+              "tco_oferta_atual": "11220.00",
+              "distancia_meta_pct": "32.00",
+              "estrategia_aplicada": "DESCONTO_VOLUME"
+            }
+          }
+        }
+      },
+      "output": {
+        "reply_id": 4,
+        "pending_audit": {
+          "supplier_domain": "example.com"
+        },
+        "audit_feedback": null,
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 1,
+            "initial_price": "110",
+            "initial_tco": "11220.00",
+            "last_tactic": {
+              "tco_oferta_atual": "11220.00",
+              "distancia_meta_pct": "32.00",
+              "estrategia_aplicada": "DESCONTO_VOLUME"
+            }
+          }
+        }
+      },
+      "error_type": null
+    },
+    {
+      "id": 8,
+      "request_id": 1,
+      "thread_id": "telegram:1:1",
+      "node": "compliance_auditor_node",
+      "status": "completed",
+      "started_at": "2026-11-07T15:45:34.605669+00:00",
+      "finished_at": "2026-11-07T15:45:34.643167+00:00",
+      "input": {
+        "request_id": 1,
+        "generation": 1,
+        "mode": "sandbox",
+        "item": "Capacete industrial certificado",
+        "quantity": 100,
+        "delivery_location": "CEP 01001-000, SP",
+        "target": "8500.00",
+        "average": "100.00",
+        "tco_base": "10000.00",
+        "model": "controlled-test-model",
+        "reply_id": 4,
+        "done": false,
+        "initialized": true,
+        "pending_audit": {
+          "supplier_domain": "example.com"
+        },
+        "audit_feedback": null,
+        "discovery_plan": {
+          "approved_suppliers": [
+            "example.com"
+          ],
+          "market_avg_unit_price": "100.00",
+          "baseline_tco": "10000.00",
+          "target_tco": "8500.00",
+          "discovery_justification": "TESTE CONTROLADO: meta calculada com a menor refer\u00eancia e custos explicitamente definidos na fixture."
+        },
+        "products": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "approved": [
+          {
+            "supplier_domain": "example.com",
+            "product_url": "https://example.com/test-product",
+            "price": "100.00"
+          }
+        ],
+        "profile_domains": [
+          "example.com"
+        ],
+        "negotiations": {
+          "example.com": {
+            "state": "waiting",
+            "round": 1,
+            "initial_price": "110",
+            "initial_tco": "11220.00",
+            "last_tactic": {
+              "tco_oferta_atual": "11220.00",
+              "distancia_meta_pct": "32.00",
+              "estrategia_aplicada": "DESCONTO_VOLUME"
+            }
+          }
+        }
+      },
+      "output": {
+        "done": true,
+        "pending_audit": null,
+        "audit_feedback": null
+      },
+      "error_type": null
+    }
+  ],
+  "memory_reused": {
+    "has_previous_history": true,
+    "historical_discount_avg_pct": "27.27",
+    "preferred_concession": "DESCONTO_UNITA",
+    "tactical_briefing": "- Hist\u00f3rico confirmado neste banco de teste.\n- Explorar redu\u00e7\u00e3o de frete j\u00e1 concedida anteriormente."
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "name": "procurement_quote",
+  "type": "ai",
+  "description": "Extract only the complete, explicitly supplier-confirmed final quotation. Preserve the first comparable unit price and the final unit price. Never infer missing amounts or confirmation. Use the same fields as submit_procurement_quote.",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "initial_price": {
+        "type": "string",
+        "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
+        "description": "First confirmed comparable unit price in BRL; strictly positive."
+      },
+      "final_price": {
+        "type": "string",
+        "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
+        "description": "Last confirmed unit price in BRL, including zero if explicitly offered."
+      },
+      "qty": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2147483647,
+        "description": "Available quantity confirmed by the supplier."
+      },
+      "delivery_time": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300,
+        "description": "Confirmed deadline and starting point, or explicit calendar date."
+      },
+      "conditions": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "description": "Confirmed payment, freight and tax conditions; explicitly describe any changes."
+      },
+      "negotiation_rounds": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3
+      },
+      "currency": {
+        "type": "string",
+        "enum": [
+          "BRL"
+        ]
+      },
+      "price_basis": {
+        "type": "string",
+        "enum": [
+          "unit"
+        ]
+      },
+      "supplier_confirmed": {
+        "type": "boolean",
+        "enum": [
+          true
+        ]
+      }
+    },
+    "required": [
+      "initial_price",
+      "final_price",
+      "qty",
+      "delivery_time",
+      "conditions",
+      "negotiation_rounds",
+      "currency",
+      "price_basis",
+      "supplier_confirmed"
+    ]
+  }
+}

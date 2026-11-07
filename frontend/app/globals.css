@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: "Inter", "Segoe UI", Arial, sans-serif;
+}
+
+:root { color-scheme: dark; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #0b0e14; color: #e9edf5; font-family: var(--font-sans); }
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled), summary { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button, a, input { outline-offset: 5px; }
+:focus-visible { outline: 2px solid #93e9bf; }
+::selection { background: #93e9bf; color: #0b0e14; }
+dialog { margin: auto; color: inherit; }
+dialog::backdrop { background: rgb(3 6 12 / 80%); backdrop-filter: blur(5px); }
+.side-drawer { margin: 0 0 0 auto; }
+.side-drawer[open] { animation: drawer-in 220ms ease-out; }
+@keyframes drawer-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+input[type="number"] { appearance: textfield; }
+input::-webkit-inner-spin-button { appearance: none; }
+.numeric { font-variant-numeric: tabular-nums; }
+.page-grid { background-image: radial-gradient(ellipse at 70% 0%, rgb(74 119 102 / 7%), transparent 48%); }
+.live-dot { box-shadow: 0 0 0 4px rgb(134 239 172 / 8%); }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      PORT: 4000
+      DATABASE_PATH: /data/business.sqlite
+      AGENT_URL: http://agents:8000
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+    volumes: [business-data:/data]
+    ports: ["127.0.0.1:4000:4000"]
+    depends_on: [agents]
+  agents:
+    build:
+      context: ./backend
+    environment:
+      AGENT_DATABASE_PATH: /data/checkpoints.sqlite
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      NEST_API_URL: http://api:4000
+    volumes: [agent-data:/data]
+    expose: ["8000"]
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      API_URL: http://api:4000
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+volumes:
+  business-data:
+  agent-data:
