@@ -196,10 +196,68 @@ async function dashboard() {
   } });
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-  if (!["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(request.nextUrl.hostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
+  const hostHeader = request.headers.get("host");
+  let requestHostname = request.nextUrl.hostname;
+  if (hostHeader) {
+    try { requestHostname = new URL(`http://${hostHeader}`).hostname; } catch { return json({ detail: "Acesso permitido somente pelo endereço local." }, 403); }
+  }
+  if (!["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
   const origin = request.headers.get("origin");
   if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
   const endpoint = (await context.params).path.join("/");
+  if (request.method === "GET" && endpoint === "auth/config") {
+    try {
+      const response = await upstream("auth/config");
+      if (response.ok) {
+        const cfg: any = await response.json();
+        return json({
+          google_client_id: cfg?.google_client_id || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || null,
+          has_client_secret: Boolean(cfg?.has_client_secret),
+        });
+      }
+    } catch {}
+    return json({ google_client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || null, has_client_secret: false });
+  }
+  if (request.method === "POST" && endpoint === "auth/config") {
+    const response = await upstream("auth/config", { method: "POST", body: await request.text() });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const msg = typeof payload?.detail === "string" ? payload.detail : typeof payload?.message === "string" ? payload.message : "Falha ao salvar configuração Google OAuth.";
+      return json({ detail: msg, message: msg }, response.status);
+    }
+    return json(payload, 200);
+  }
+  if (request.method === "POST" && endpoint === "auth/logout") {
+    const res = json({ ok: true });
+    res.cookies.set("nexo_session", "", { httpOnly: true, path: "/", sameSite: "lax", maxAge: 0 });
+    return res;
+  }
+  if (request.method === "POST" && (endpoint === "auth/register" || endpoint === "auth/login" || endpoint === "auth/google")) {
+    const response = await upstream(endpoint, { method: "POST", body: await request.text() });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const msg = typeof payload?.detail === "string" ? payload.detail : typeof payload?.message === "string" ? payload.message : Array.isArray(payload?.message) ? payload.message.join(", ") : "Falha na autenticação.";
+      return json({ detail: msg, message: msg }, response.status);
+    }
+    const res = json(payload, response.status);
+    if (typeof payload?.token === "string") {
+      res.cookies.set("nexo_session", payload.token, { httpOnly: true, path: "/", sameSite: "lax", maxAge: 60 * 60 * 24 * 7 });
+    }
+    return res;
+  }
+  if (request.method === "GET" && endpoint === "auth/me") {
+    const headerAuth = request.headers.get("authorization");
+    const cookieToken = request.cookies.get("nexo_session")?.value;
+    const authHeader = headerAuth || (cookieToken ? `Bearer ${cookieToken}` : "");
+    if (!authHeader) return json({ detail: "Não autenticado." }, 401);
+    const response = await upstream("auth/me", { headers: { Authorization: authHeader } });
+    const payload: any = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const msg = typeof payload?.detail === "string" ? payload.detail : typeof payload?.message === "string" ? payload.message : "Sessão inválida.";
+      return json({ detail: msg, message: msg }, response.status);
+    }
+    return json(payload, 200);
+  }
   if (request.method === "GET" && endpoint === "godmode/dashboard") return dashboard();
 
   if (request.method === "GET" && /^history(?:\/[0-9a-f-]{36})?$/i.test(endpoint)) {

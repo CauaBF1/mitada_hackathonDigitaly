@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 
-const stages = ['recebida', 'pesquisando', 'aguardando', 'comparação', 'decidida'];
+const stages = ['recebida', 'pesquisando', 'aguardando', 'comparação', 'concluida', 'decidida'];
 const activity = `(SELECT MAX(recorded_at) FROM (
   SELECT r.created_at AS recorded_at
   UNION ALL SELECT created_at FROM quotes WHERE request_id=r.id
@@ -54,7 +54,7 @@ export class HistoryService {
       const rows = this.db.prepare(`SELECT r.id,${activity} AS last_activity_at FROM requests r ${filter} ORDER BY r.created_at ${order},r.id ${order} LIMIT ? OFFSET ?`)
         .all(...args, pageSize, (currentPage - 1) * pageSize) as any[];
       const items = rows.map(row => {
-        const req = this.getRequest(row.id), selected = req.quotes.find((q: any) => q.id === req.decision);
+        const req = this.getRequest(row.id), selected = req.quotes.find((q: any) => q.id === (req.decision || req.completed_quote_id || req.preferred_market_quote_id));
         return { id: req.id, product: req.product, qty: req.qty, destination: req.destination, status: req.status,
           created_at: req.created_at, last_activity_at: row.last_activity_at, quote_count: req.quotes.length,
           eligible_quote_count: req.quotes.filter((q: any) => q.eligible).length,

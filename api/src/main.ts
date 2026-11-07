@@ -4,12 +4,14 @@ import { WhatsAppService, webhookAuth } from './whatsapp';
 import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Injectable, NotFoundException, Param, Post, Query, UnauthorizedException, Module, OnModuleInit, Inject } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import Database from 'better-sqlite3';
-import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, createHmac, timingSafeEqual, createHash } from 'node:crypto';
 import { dispatchPurchaseOutbox } from './purchase-delivery';
 
 const db = new Database(process.env.DATABASE_PATH || './business.sqlite');
 db.pragma('journal_mode = WAL');
-db.exec(`CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, product TEXT NOT NULL, specs TEXT NOT NULL, qty INTEGER NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL, decision TEXT, version INTEGER NOT NULL DEFAULT 1, execution_version INTEGER NOT NULL DEFAULT 0, agent_analysis TEXT, notice TEXT, created_at TEXT NOT NULL);
+db.exec(`CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, password_hash TEXT, google_id TEXT, avatar_url TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, product TEXT NOT NULL, specs TEXT NOT NULL, qty INTEGER NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL, decision TEXT, version INTEGER NOT NULL DEFAULT 1, execution_version INTEGER NOT NULL DEFAULT 0, agent_analysis TEXT, notice TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS quotes(id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES requests(id), event_id TEXT NOT NULL, supplier TEXT NOT NULL, unit_cents INTEGER NOT NULL, shipping_cents INTEGER, fees_cents INTEGER, lead_days INTEGER, available_qty INTEGER, conditions TEXT, source_url TEXT, product_confirmed INTEGER NOT NULL DEFAULT 0, destination_confirmed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(request_id,event_id));
 CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, request_id TEXT NOT NULL, status TEXT NOT NULL, payload TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_outbound(chat_id TEXT NOT NULL, message_id INTEGER NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(chat_id,message_id));
@@ -36,6 +38,46 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_delivery_per_telegram_update ON telegram_d
 UPDATE quotes SET supplier_chat_id=(SELECT CAST(json_extract(u.raw_update,'$.message.chat.id') AS TEXT) FROM telegram_updates u WHERE u.update_id=CAST(substr(quotes.event_id,9) AS INTEGER)) WHERE supplier_chat_id IS NULL AND event_id GLOB 'telegram:*';`);
 const outboundInfo=db.prepare('PRAGMA table_info(telegram_outbound)').all() as any[];if(!outboundInfo.some(row=>row.name==='chat_id'&&row.pk===1)){db.exec(`ALTER TABLE telegram_outbound RENAME TO telegram_outbound_legacy;CREATE TABLE telegram_outbound(chat_id TEXT NOT NULL,message_id INTEGER NOT NULL,request_id TEXT NOT NULL,PRIMARY KEY(chat_id,message_id));INSERT OR IGNORE INTO telegram_outbound(chat_id,message_id,request_id) SELECT chat_id,message_id,request_id FROM telegram_outbound_legacy;DROP TABLE telegram_outbound_legacy;`);}
 function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'');if(!/^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:[,.]\d{1,2})?$/.test(raw))return Number.NaN;const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):raw;const [whole,fraction='']=normalized.split('.');const cents=Number(whole)*100+Number((fraction+'00').slice(0,2));return Number.isSafeInteger(cents)?cents:Number.NaN;}
+
+const jwtSecret = () => process.env.JWT_SECRET || 'nexo-dev-jwt-secret-change-in-production';
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyPassword(password: string, stored: string): boolean {
+  const [salt, keyHex] = stored.split(':');
+  if (!salt || !keyHex) return false;
+  const keyBuf = Buffer.from(keyHex, 'hex');
+  const derived = scryptSync(password, salt, 64);
+  return keyBuf.length === derived.length && timingSafeEqual(keyBuf, derived);
+}
+function signJwt(payload: Record<string, any>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const body = Buffer.from(JSON.stringify({ ...payload, iat: now, exp: now + 60 * 60 * 24 * 7 })).toString('base64url');
+  const sig = createHmac('sha256', jwtSecret()).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${sig}`;
+}
+function verifyJwt(token: string): Record<string, any> {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new UnauthorizedException('Token de sessão inválido.');
+  const [header, body, sig] = parts;
+  const expected = createHmac('sha256', jwtSecret()).update(`${header}.${body}`).digest('base64url');
+  if (sig.length !== expected.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    throw new UnauthorizedException('Assinatura do token inválida.');
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) {
+      throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+    }
+    return payload;
+  } catch (err) {
+    if (err instanceof UnauthorizedException) throw err;
+    throw new UnauthorizedException('Token malformado.');
+  }
+}
 
 @Injectable() class Business implements OnModuleInit {
   readonly whatsapp = new WhatsAppService(db, id => this.get(id), (id, q) => this.addQuote(id, q));
@@ -186,7 +228,7 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
   addQuote(id: string, q: any) { const req=this.get(id);const currentSim=this.purchaseSimulationRow(id) as any;if(currentSim?.status==='confirmed')throw new BadRequestException('Pedido simulado confirmado é final.'); q={...q,shipping_cents:q?.shipping_cents??null,fees_cents:q?.fees_cents??null,lead_days:q?.lead_days??null,available_qty:q?.available_qty??null,product_confirmed:q?.product_confirmed===true,destination_confirmed:q?.destination_confirmed===true}; if (!q || typeof q.supplier !== 'string' || q.supplier.trim().length<1 || q.supplier.length>200 || !this.money(q.unit_cents,false) || !Number.isSafeInteger(q.unit_cents*req.qty) || (q.lead_days!==null&&!Number.isInteger(q.lead_days)) || (q.lead_days!==null&&(q.lead_days<0||q.lead_days>3650)) || (q.available_qty!==null&&!Number.isInteger(q.available_qty)) || (q.available_qty!==null&&(q.available_qty<0||q.available_qty>1000000000)) || (q.shipping_cents!==null&&!this.money(q.shipping_cents,true)) || (q.fees_cents!==null&&!this.money(q.fees_cents,true)) || (q.shipping_cents!==null&&q.fees_cents!==null&&!Number.isSafeInteger(q.unit_cents*req.qty+q.shipping_cents+q.fees_cents)) || (q.source_url!==undefined&&q.source_url!==null&&(typeof q.source_url!=='string'||q.source_url.length>2000||!q.source_url.startsWith('https://')))) throw new BadRequestException('Proposta inválida: centavos inteiros, valores totais seguros, prazo e estoque devem ser confirmados.');
     const eventId=String(q.event_id||randomUUID());if(eventId.length>200)throw new BadRequestException('event_id inválido.');const quoteId=randomUUID(); db.prepare('INSERT OR IGNORE INTO quotes(id,request_id,event_id,supplier,unit_cents,shipping_cents,fees_cents,lead_days,available_qty,conditions,source_url,product_confirmed,destination_confirmed,created_at,supplier_chat_id,valid_until,payment_terms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(quoteId,id,eventId,q.supplier.trim(),q.unit_cents,q.shipping_cents,q.fees_cents,q.lead_days??null,q.available_qty??null,String(q.conditions||'').slice(0,2000),q.source_url??null,q.product_confirmed?1:0,q.destination_confirmed?1:0,new Date().toISOString(),q.supplier_chat_id??null,q.valid_until??null,q.payment_terms??null);if((db.prepare('SELECT changes() AS n').get() as any).n>0){if(req.quote_completion_state==='aguardando_confirmacao')db.prepare("UPDATE requests SET quote_completion_state='coletando',quote_terms_snapshot=NULL,completed_quote_id=NULL WHERE id=?").run(id);const sim=this.purchaseSimulationRow(id) as any;if(sim&&sim.status==='awaiting_supplier'){db.prepare("UPDATE purchase_simulations SET status='review_required' WHERE id=?").run(sim.id);db.prepare("UPDATE purchase_outbox SET status='cancelled' WHERE simulation_id=? AND status='queued'").run(sim.id);}}db.prepare("UPDATE requests SET status='comparação',notice=NULL,version=version+1 WHERE id=? AND status NOT IN ('decidida','concluida')").run(id);return this.get(id); }
   private money(n:any,zero:boolean){return Number.isSafeInteger(n)&&n>=(zero?0:1)&&n<=999999999999;}
-  decide(id:string,b:any,key:string|undefined){const req=this.get(id);if(!key||key.length>200)throw new BadRequestException('Idempotency-Key obrigatória.');const prior=db.prepare('SELECT * FROM purchase_simulations WHERE request_id=? AND idempotency_key=?').get(id,key) as any;if(prior){if(prior.quote_id!==b?.quote_id)throw new BadRequestException('Idempotency-Key já usada para outra cotação.');return this.get(id);}if(b?.confirmed!==true||!Number.isInteger(b.version)||b.version!==req.version)throw new BadRequestException('Confirmação humana e versão atual são obrigatórias.');if(req.quote_completion_state!=='concluida')throw new BadRequestException('A cotação precisa estar explicitamente concluída pelo fornecedor.');const q=db.prepare('SELECT * FROM quotes WHERE id=? AND request_id=?').get(b.quote_id,id) as any;if(!q||req.completed_quote_id!==b.quote_id||!this.sameSnapshot(q,req.quote_terms_snapshot)||!req.quotes.some((row:any)=>row.id===b.quote_id&&row.eligible))throw new BadRequestException('Selecione uma cotação elegível desta solicitação.');const chat=q.supplier_chat_id;if(!chat)throw new BadRequestException('A cotação não tem fornecedor Telegram correspondente.');const snapshot=req.quote_terms_snapshot||this.termsSnapshot(q);const active=db.prepare("SELECT * FROM purchase_simulations WHERE request_id=? AND status IN ('awaiting_supplier','confirmed')").get(id) as any;const priorSimulation=db.prepare('SELECT * FROM purchase_simulations WHERE request_id=? ORDER BY created_at DESC LIMIT 1').get(id) as any;if(active)throw new BadRequestException('Já existe uma simulação para esta solicitação.');if(priorSimulation&&priorSimulation.status!=='review_required')throw new BadRequestException('A simulação anterior é final e não pode ser duplicada.');const simId=randomUUID(),now=new Date().toISOString();const tx=db.transaction(()=>{const fresh=db.prepare('SELECT version,quote_completion_state FROM requests WHERE id=?').get(id) as any;if(fresh.version!==b.version||fresh.quote_completion_state!=='concluida')throw new BadRequestException('A solicitação mudou; recarregue antes de decidir.');db.prepare("INSERT INTO purchase_simulations(id,request_id,quote_id,snapshot,status,created_at,idempotency_key) VALUES(?,?,?,?, 'awaiting_supplier',?,?)").run(simId,id,q.id,snapshot,now,key);db.prepare("INSERT INTO purchase_outbox(id,simulation_id,request_id,quote_id,chat_id,status,created_at) VALUES(?,?,?,?,?,'queued',?)").run(randomUUID(),simId,id,q.id,String(chat),now);db.prepare("UPDATE requests SET status='decidida',decision=?,preferred_market_quote_id=NULL,preferred_market_at=NULL,version=version+1 WHERE id=? AND version=?").run(q.id,id,b.version);});tx();return this.get(id);}
+  decide(id:string,b:any,key:string|undefined){const req=this.get(id);if(!key&&b?.confirmed===undefined&&req.status!=='decidida'&&req.quote_completion_state!=='concluida'&&Number.isInteger(b?.version)&&b.version===req.version&&req.quotes.some((row:any)=>row.id===b?.quote_id&&row.eligible)){const res=db.prepare("UPDATE requests SET status='decidida',decision=?,notice=NULL,version=version+1 WHERE id=? AND version=? AND status<>'decidida'").run(b.quote_id,id,b.version);if(!res.changes)throw new BadRequestException('A solicitação mudou; recarregue antes de decidir.');return this.get(id);}if(!key||key.length>200)throw new BadRequestException('Idempotency-Key obrigatória.');const prior=db.prepare('SELECT * FROM purchase_simulations WHERE request_id=? AND idempotency_key=?').get(id,key) as any;if(prior){if(prior.quote_id!==b?.quote_id)throw new BadRequestException('Idempotency-Key já usada para outra cotação.');return this.get(id);}if(b?.confirmed!==true||!Number.isInteger(b.version)||b.version!==req.version)throw new BadRequestException('Confirmação humana e versão atual são obrigatórias.');if(req.quote_completion_state!=='concluida')throw new BadRequestException('A cotação precisa estar explicitamente concluída pelo fornecedor.');const q=db.prepare('SELECT * FROM quotes WHERE id=? AND request_id=?').get(b.quote_id,id) as any;if(!q||req.completed_quote_id!==b.quote_id||!this.sameSnapshot(q,req.quote_terms_snapshot)||!req.quotes.some((row:any)=>row.id===b.quote_id&&row.eligible))throw new BadRequestException('Selecione uma cotação elegível desta solicitação.');const chat=q.supplier_chat_id;if(!chat)throw new BadRequestException('A cotação não tem fornecedor Telegram correspondente.');const snapshot=req.quote_terms_snapshot||this.termsSnapshot(q);const active=db.prepare("SELECT * FROM purchase_simulations WHERE request_id=? AND status IN ('awaiting_supplier','confirmed')").get(id) as any;const priorSimulation=db.prepare('SELECT * FROM purchase_simulations WHERE request_id=? ORDER BY created_at DESC LIMIT 1').get(id) as any;if(active)throw new BadRequestException('Já existe uma simulação para esta solicitação.');if(priorSimulation&&priorSimulation.status!=='review_required')throw new BadRequestException('A simulação anterior é final e não pode ser duplicada.');const simId=randomUUID(),now=new Date().toISOString();const tx=db.transaction(()=>{const fresh=db.prepare('SELECT version,quote_completion_state FROM requests WHERE id=?').get(id) as any;if(fresh.version!==b.version||fresh.quote_completion_state!=='concluida')throw new BadRequestException('A solicitação mudou; recarregue antes de decidir.');db.prepare("INSERT INTO purchase_simulations(id,request_id,quote_id,snapshot,status,created_at,idempotency_key) VALUES(?,?,?,?, 'awaiting_supplier',?,?)").run(simId,id,q.id,snapshot,now,key);db.prepare("INSERT INTO purchase_outbox(id,simulation_id,request_id,quote_id,chat_id,status,created_at) VALUES(?,?,?,?,?,'queued',?)").run(randomUUID(),simId,id,q.id,String(chat),now);db.prepare("UPDATE requests SET status='decidida',decision=?,preferred_market_quote_id=NULL,preferred_market_at=NULL,version=version+1 WHERE id=? AND version=?").run(q.id,id,b.version);});tx();return this.get(id);}
   marketPreference(id:string,b:any){const req=this.get(id);if(!b||!Number.isInteger(b.version)||b.version!==req.version)throw new BadRequestException('Versão atual da solicitação é obrigatória.');if(req.status!=='concluida'&&req.status!=='decidida'&&req.quote_completion_state!=='concluida')throw new BadRequestException('Conclua a cotação antes de registrar a preferência final.');const active=db.prepare("SELECT * FROM purchase_simulations WHERE request_id=? AND status IN ('awaiting_supplier','confirmed')").get(id) as any;if(active)throw new BadRequestException('Cancele a simulação ativa com o fornecedor antes de selecionar uma opção da internet.');if(b.quote_id===null){const res=db.prepare('UPDATE requests SET preferred_market_quote_id=NULL,preferred_market_at=NULL,version=version+1 WHERE id=? AND version=?').run(id,b.version);if(!res.changes)throw new BadRequestException('A solicitação mudou; recarregue antes de decidir.');return this.get(id);}if(typeof b.quote_id!=='string'||!b.quote_id.trim())throw new BadRequestException('Selecione uma oferta válida da internet.');const q=db.prepare('SELECT * FROM quotes WHERE id=? AND request_id=?').get(b.quote_id,id) as any;if(!q||typeof q.source_url!=='string'||!q.source_url.startsWith('https://'))throw new BadRequestException('A oferta selecionada não é uma opção válida da internet.');const res=db.prepare('UPDATE requests SET preferred_market_quote_id=?,preferred_market_at=?,version=version+1 WHERE id=? AND version=?').run(q.id,new Date().toISOString(),id,b.version);if(!res.changes)throw new BadRequestException('A solicitação mudou; recarregue antes de decidir.');return this.get(id);}
   cancelPurchase(id:string){const sim=this.purchaseSimulationRow(id) as any;if(!sim){this.get(id);throw new NotFoundException('Simulação inexistente');}if(['confirmed','rejected','cancelled'].includes(sim.status))return this.get(id);db.prepare("UPDATE purchase_simulations SET status='cancelled' WHERE id=? AND status IN ('awaiting_supplier','review_required')").run(sim.id);db.prepare("UPDATE purchase_outbox SET status='cancelled' WHERE simulation_id=? AND status='queued'").run(sim.id);return this.get(id);}
   async refreshReputation(id:string){const req=this.get(id),cached=db.prepare('SELECT refreshed_at FROM reputation_cache WHERE request_id=?').get(id) as any;if(cached&&Date.now()-Date.parse(cached.refreshed_at)<86400000)return {request:this.get(id),cached:true};const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/reputation-refresh`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({offers:req.quotes}),signal:AbortSignal.timeout(35000)});if(!response.ok)throw new BadRequestException('Atualização de reputação indisponível.');const data:any=await response.json();const tx=db.transaction(()=>{db.prepare('UPDATE requests SET agent_analysis=? WHERE id=?').run(JSON.stringify({...req.agent_analysis,reputations:data.reputations,reputation_indications:data.reputation_indications}),id);db.prepare('INSERT INTO reputation_cache(request_id,refreshed_at) VALUES(?,?) ON CONFLICT(request_id) DO UPDATE SET refreshed_at=excluded.refreshed_at').run(id,new Date().toISOString());});tx();return {request:this.get(id),cached:false};}
@@ -213,7 +255,7 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
     const rows=db.prepare("SELECT id,update_id,sender_type,content FROM conversation_messages WHERE request_id=? AND channel='telegram' AND (chat_id=? OR chat_id IS NULL) ORDER BY created_at,rowid LIMIT 201").all(id,chat) as any[];if(rows.length>200)throw new BadRequestException('Histórico excede 200 mensagens; selecione uma conversa menor.');let result:any;const history:any[]=[];for(const row of rows){if(row.sender_type!=='SUPPLIER'){history.push({sender_type:'AI',content:row.content});continue;}result=await this.conversationTurnUnlocked(id,{message:row.content,chat_id:chat,update_id:row.update_id,message_id:row.id,reprocess:true,history_override:history.slice()});if(result.intent==='pending')return {ok:false,pending:true,reply:result.reply,request:this.get(id)};history.push({sender_type:'SUPPLIER',content:row.content});}const draft=this.draftTerms(id,chat);if(!draft)throw new BadRequestException('Não foi possível recuperar o rascunho.');const reply=this.draftReply(draft.terms,draft.missing_fields);const previous=db.prepare("SELECT content FROM conversation_messages WHERE request_id=? AND chat_id=? AND sender_type='AI' ORDER BY created_at DESC,rowid DESC LIMIT 1").get(id,chat) as any;const response:any={ok:true,reply,draft,request:this.get(id),sent:false};if(body?.send===true&&previous?.content!==reply){const deliveryId=randomUUID();db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,created_at,message_text) VALUES(?,?,?,'sending',?,?)").run(deliveryId,id,chat,new Date().toISOString(),reply);db.prepare('INSERT INTO contact_idempotency VALUES(?,?,?,?)').run(id,cacheKey,JSON.stringify({...response,delivery_id:deliveryId,pending:true}),new Date().toISOString());response.sent=await this.sendTelegram(deliveryId,id,chat,reply);response.delivery_id=deliveryId;db.prepare('UPDATE contact_idempotency SET result=? WHERE request_id=? AND idempotency_key=?').run(JSON.stringify(response),id,cacheKey);}return response;}
   conversationTurn(id:string,input:any){const prior=this.turnQueues.get(id)||Promise.resolve();const next=prior.catch(()=>{}).then(()=>this.conversationTurnUnlocked(id,input));this.turnQueues.set(id,next);void next.finally(()=>{if(this.turnQueues.get(id)===next)this.turnQueues.delete(id);}).catch(()=>{});return next;}
   private async conversationTurnUnlocked(id:string,input:any){const req=this.get(id);const startVersion=req.version,startPhase=req.quote_completion_state; if(!input||typeof input.message!=='string'||!input.message.trim())throw new BadRequestException('Mensagem obrigatória.');const activeSim=this.purchaseSimulationRow(id) as any;const activeQuote=req.completed_quote_id?db.prepare('SELECT supplier_chat_id FROM quotes WHERE id=?').get(req.completed_quote_id) as any:null;if(activeSim?.status==='awaiting_supplier'&&activeQuote?.supplier_chat_id&&input.chat_id&&String(activeQuote.supplier_chat_id)!==String(input.chat_id))return {intent:'purchase',reply:'Esta simulação está vinculada a outro fornecedor.',terms:null,explicit_confirmation:false,terms_changed:false,purchase_acceptance:'unclear',phase:'purchase'};const history=input.history_override|| (input.chat_id?db.prepare("SELECT sender_type AS sender_type,content FROM conversation_messages WHERE request_id=? AND chat_id=? AND channel='telegram' ORDER BY created_at DESC LIMIT 12").all(id,String(input.chat_id)).reverse() as any[]:db.prepare("SELECT sender_type AS sender_type,content FROM conversation_messages WHERE request_id=? AND chat_id IS NULL AND channel='telegram' ORDER BY created_at DESC LIMIT 12").all(id).reverse() as any[]);const priorQuote=input.chat_id?db.prepare("SELECT * FROM quotes WHERE request_id=? AND supplier_chat_id=? ORDER BY created_at DESC LIMIT 1").get(id,String(input.chat_id)) as any:db.prepare("SELECT * FROM quotes WHERE request_id=? AND id=? AND supplier_chat_id IS NOT NULL").get(id,req.completed_quote_id||'!') as any;const prior=this.draftTerms(id,String(input.chat_id||''))?.terms||priorQuote;const sim=this.purchaseSimulationRow(id) as any;const phase=sim?.status==='awaiting_supplier'?'purchase':req.quote_completion_state==='concluida'?'quote_completed':req.quote_completion_state==='aguardando_confirmacao'?'quote_confirmation':prior||input.update_id!==undefined?'quotation':'opening';const missing_fields:string[]=[];if(!prior?.unit_cents)missing_fields.push('unit_cents');if(prior?.shipping_cents==null)missing_fields.push('shipping_cents');if(prior?.fees_cents==null)missing_fields.push('fees_cents');if(prior?.lead_days==null)missing_fields.push('lead_days');if(prior?.available_qty==null)missing_fields.push('available_qty');if(!prior?.product_confirmed)missing_fields.push('product_confirmed');if(!prior?.destination_confirmed)missing_fields.push('destination_confirmed');const priorPayload=prior?{supplier:prior.supplier,unit_cents:prior.unit_cents,shipping_cents:prior.shipping_cents,fees_cents:prior.fees_cents,lead_days:prior.lead_days,available_qty:prior.available_qty,conditions:prior.conditions,valid_until:prior.valid_until??null,payment_terms:prior.payment_terms??null,product_confirmed:!!prior.product_confirmed,destination_confirmed:!!prior.destination_confirmed}:null;let result:any;try{const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/conversation-turn`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({product:req.product,qty:req.qty,destination:req.destination,message:input.message,history,phase,terms:priorPayload,missing_fields}),signal:AbortSignal.timeout(35000)});if(!response.ok)throw new Error('conversation service');result=await response.json();}catch{result={intent:'pending',reply:'Não consegui processar esta mensagem agora; ela continua pendente para nova tentativa.',terms:priorPayload,explicit_confirmation:false,terms_changed:false,purchase_acceptance:'unclear'};}
-    const current=db.prepare('SELECT version,quote_completion_state FROM requests WHERE id=?').get(id) as any;if(current.version!==startVersion||current.quote_completion_state!==startPhase)return {intent:'pending',reply:'Sua mensagem continua pendente enquanto atualizo a conversa.',terms:null,explicit_confirmation:false,terms_changed:false,purchase_acceptance:'unclear',phase};
+    const current=db.prepare('SELECT version,quote_completion_state FROM requests WHERE id=?').get(id) as any;if(!current)return {intent:'deleted',reply:'',terms:null,explicit_confirmation:false,terms_changed:false,purchase_acceptance:'unclear',phase};if(current.version!==startVersion||current.quote_completion_state!==startPhase)return {intent:'pending',reply:'Sua mensagem continua pendente enquanto atualizo a conversa.',terms:null,explicit_confirmation:false,terms_changed:false,purchase_acceptance:'unclear',phase};
     const coreUnchanged=prior&&(!result?.terms||['unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'].every(k=>result.terms[k]==null||result.terms[k]===(k.endsWith('_confirmed')?!!prior[k]:prior[k])));
     if(result.intent!=='pending'&&phase==='quote_confirmation'&&!input.reprocess&&(this.explicitYes(input.message)||(result.explicit_confirmation===true&&coreUnchanged))){result.explicit_confirmation=true;result.terms_changed=false;result.terms=priorPayload;}
     else if(result.intent!=='pending'&&(!['quote_completed','purchase'].includes(phase)||result.terms_changed||input.reprocess)){
@@ -243,7 +285,7 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
     if(!mapping){const open=db.prepare("SELECT DISTINCT r.id AS request_id FROM requests r JOIN telegram_outbound o ON o.request_id=r.id WHERE o.chat_id=? AND (r.status NOT IN ('decidida','concluida') OR EXISTS(SELECT 1 FROM purchase_simulations p WHERE p.request_id=r.id AND p.status='awaiting_supplier'))").all(chat) as any[];if(open.length!==1){const prompt=open.length?'Tenho mais de uma solicitação ativa. Responda à mensagem da cotação que deseja tratar, por favor.':'Não encontrei uma solicitação ativa para esta conversa.';const did=randomUUID();db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,created_at,message_text) VALUES(?,'system',?,'sending',?,?)").run(did,chat,new Date().toISOString(),prompt);await this.sendTelegram(did,'system',chat,prompt);db.prepare("UPDATE telegram_updates SET status='processed' WHERE update_id=?").run(updateId);return {ok:true,ambiguous:open.length>1};}mapping=open[0];}
     const req=this.get(mapping.request_id);
     db.prepare("INSERT OR IGNORE INTO conversation_messages(id,request_id,chat_id,sender_type,content,delivery_status,update_id,created_at) VALUES(?,?,?,'SUPPLIER',?,'received',?,?)").run(randomUUID(),req.id,chat,raw,updateId,new Date().toISOString());
-    try{const simBefore=this.purchaseSimulationRow(req.id) as any;const orderReply=simBefore?.status==='awaiting_supplier'&&Number.isSafeInteger(parent)&&!!db.prepare("SELECT 1 FROM purchase_outbox o JOIN telegram_delivery d ON d.id=o.delivery_id JOIN telegram_outbound t ON t.request_id=o.request_id AND t.chat_id=o.chat_id AND CAST(t.message_id AS INTEGER)=? WHERE d.telegram_message_id=? AND o.delivery_id=d.id AND o.simulation_id=? AND o.chat_id=? AND o.status='sent' AND d.status='sent' AND d.chat_id=?").get(parent,parent,simBefore.id,chat,chat);const quoteWasAwaiting=req.quote_completion_state==='aguardando_confirmacao';const result=await this.conversationTurn(req.id,{message:raw,chat_id:chat,update_id:updateId,supplier_name:msg.from?.first_name});const afterTurn=db.prepare('SELECT quote_completion_state,quote_terms_snapshot,completed_quote_id FROM requests WHERE id=?').get(req.id) as any;if(result.explicit_confirmation===true&&(quoteWasAwaiting||req.quote_completion_state==='coletando')&&afterTurn.quote_completion_state!=='concluida'){
+    try{const simBefore=this.purchaseSimulationRow(req.id) as any;const orderReply=simBefore?.status==='awaiting_supplier'&&Number.isSafeInteger(parent)&&!!db.prepare("SELECT 1 FROM purchase_outbox o JOIN telegram_delivery d ON d.id=o.delivery_id JOIN telegram_outbound t ON t.request_id=o.request_id AND t.chat_id=o.chat_id AND CAST(t.message_id AS INTEGER)=? WHERE d.telegram_message_id=? AND o.delivery_id=d.id AND o.simulation_id=? AND o.chat_id=? AND o.status='sent' AND d.status='sent' AND d.chat_id=?").get(parent,parent,simBefore.id,chat,chat);const quoteWasAwaiting=req.quote_completion_state==='aguardando_confirmacao';const result=await this.conversationTurn(req.id,{message:raw,chat_id:chat,update_id:updateId,supplier_name:msg.from?.first_name});if(!this.exists(req.id)||result.intent==='deleted')return {ok:true,ignored:'deleted'};const afterTurn=db.prepare('SELECT quote_completion_state,quote_terms_snapshot,completed_quote_id FROM requests WHERE id=?').get(req.id) as any;if(result.explicit_confirmation===true&&(quoteWasAwaiting||req.quote_completion_state==='coletando')&&afterTurn.quote_completion_state!=='concluida'){
         const latest=db.prepare(`SELECT q.* FROM quotes q WHERE q.request_id=? AND
           (q.supplier_chat_id=? OR (q.supplier_chat_id IS NULL AND EXISTS (
             SELECT 1 FROM telegram_updates u WHERE q.event_id='telegram:'||u.update_id
@@ -277,10 +319,126 @@ function centsFromText(value:string){const raw=value.trim().replace(/^R\$\s*/i,'
       let delivery=db.prepare('SELECT * FROM telegram_delivery WHERE source_update_id=?').get(updateId) as any;let sent=true;if(!delivery){const did=randomUUID();db.prepare("INSERT OR IGNORE INTO telegram_delivery(id,request_id,chat_id,status,created_at,message_text,source_update_id) VALUES(?,?,?,'sending',?,?,?)").run(did,req.id,chat,new Date().toISOString(),result.reply,updateId);delivery=db.prepare('SELECT * FROM telegram_delivery WHERE source_update_id=?').get(updateId) as any;if(delivery?.id===did)sent=!!(await this.sendTelegram(did,req.id,chat,result.reply));}db.prepare("UPDATE telegram_updates SET status=? WHERE update_id=?").run(result.intent==='pending'||!sent?'pending':'processed',updateId);return {ok:true,pending:result.intent==='pending'||!sent};
     }catch{db.prepare("UPDATE telegram_updates SET status='pending',retry_after=? WHERE update_id=?").run(new Date(Date.now()+10000).toISOString(),updateId);return {ok:true,pending:true,reason:'conversation-turn-unavailable'};}
   }
+  private publicUser(row: any) {
+    return { id: row.id, name: row.name, email: row.email, google_id: row.google_id || null, avatar_url: row.avatar_url || null, created_at: row.created_at };
+  }
+  getAuthConfig() {
+    const dbClientId = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_id'").get() as any)?.value || '';
+    const dbClientSecret = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_secret'").get() as any)?.value || '';
+    const envClientId = (process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+    const envClientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    const clientId = (dbClientId || envClientId).trim() || null;
+    const hasSecret = Boolean((dbClientSecret || envClientSecret).trim());
+    return { google_client_id: clientId, has_client_secret: hasSecret };
+  }
+  saveAuthConfig(body: any) {
+    const rawClientId = typeof body?.google_client_id === 'string' ? body.google_client_id.trim() : '';
+    const rawClientSecret = typeof body?.google_client_secret === 'string' ? body.google_client_secret.trim() : '';
+    if (!rawClientId || !rawClientId.endsWith('.apps.googleusercontent.com')) {
+      throw new BadRequestException('Informe um Google Client ID válido (terminado em .apps.googleusercontent.com).');
+    }
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO app_settings(key, value, updated_at) VALUES ('google_client_id', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(rawClientId, now);
+    if (rawClientSecret) {
+      db.prepare("INSERT INTO app_settings(key, value, updated_at) VALUES ('google_client_secret', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").run(rawClientSecret, now);
+    }
+    return this.getAuthConfig();
+  }
+  register(body: any) {
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido (entre 2 e 120 caracteres).');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new BadRequestException('Informe um e-mail corporativo válido.');
+    if (password.length < 6 || password.length > 128) throw new BadRequestException('A senha deve ter entre 6 e 128 caracteres.');
+    const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (exists) throw new BadRequestException('Este e-mail já está cadastrado. Faça login.');
+    const id = randomUUID(), now = new Date().toISOString(), passwordHash = hashPassword(password);
+    db.prepare('INSERT INTO users(id, name, email, password_hash, google_id, avatar_url, created_at) VALUES (?, ?, ?, ?, NULL, NULL, ?)').run(id, name, email, passwordHash, now);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  login(body: any) {
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (!email || !password) throw new BadRequestException('Informe seu e-mail e senha.');
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    if (!user) throw new UnauthorizedException('E-mail ou senha inválidos.');
+    if (!user.password_hash) throw new UnauthorizedException('Esta conta utiliza login com Google. Clique em "Continuar com o Google".');
+    if (!verifyPassword(password, user.password_hash)) throw new UnauthorizedException('E-mail ou senha inválidos.');
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  async googleAuth(body: any): Promise<{ token: string; user: any }> {
+    let googleId = '', email = '', name = '', avatarUrl: string | null = null;
+    const dbClientId = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_id'").get() as any)?.value || '';
+    const dbClientSecret = (db.prepare("SELECT value FROM app_settings WHERE key = 'google_client_secret'").get() as any)?.value || '';
+    const clientId = (dbClientId || process.env.GOOGLE_CLIENT_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+    const clientSecret = (dbClientSecret || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+    if (typeof body?.credential === 'string' && body.credential.trim()) {
+      const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(body.credential.trim())}`, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new UnauthorizedException('Credencial do Google inválida ou expirada.');
+      const info: any = await res.json();
+      if (clientId && info.aud && info.aud !== clientId) throw new UnauthorizedException('Client ID do Google não corresponde a esta aplicação.');
+      if (!info.email || !info.sub) throw new UnauthorizedException('Token do Google não contém perfil válido.');
+      googleId = String(info.sub);
+      email = String(info.email).toLowerCase();
+      name = String(info.name || info.given_name || email.split('@')[0]).slice(0, 120);
+      avatarUrl = typeof info.picture === 'string' ? info.picture : null;
+    } else if (typeof body?.access_token === 'string' && body.access_token.trim()) {
+      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${body.access_token.trim()}` }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new UnauthorizedException('Token de acesso do Google inválido ou expirado.');
+      const info: any = await res.json();
+      if (!info.email || !info.sub) throw new UnauthorizedException('Perfil do Google incompleto.');
+      googleId = String(info.sub);
+      email = String(info.email).toLowerCase();
+      name = String(info.name || info.given_name || email.split('@')[0]).slice(0, 120);
+      avatarUrl = typeof info.picture === 'string' ? info.picture : null;
+    } else if (typeof body?.code === 'string' && body.code.trim()) {
+      if (!clientId || !clientSecret) throw new BadRequestException('GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET não configurados no servidor.');
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ code: body.code.trim(), client_id: clientId, client_secret: clientSecret, redirect_uri: body.redirect_uri || 'postmessage', grant_type: 'authorization_code' }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!tokenRes.ok) throw new UnauthorizedException('Falha ao trocar código OAuth com o Google.');
+      const tokens: any = await tokenRes.json();
+      return this.googleAuth({ credential: tokens.id_token, access_token: tokens.access_token });
+    } else {
+      throw new BadRequestException('Credencial OAuth do Google ausente. Configure o Google Client ID para autenticar com o Google.');
+    }
+    let user = db.prepare('SELECT * FROM users WHERE google_id = ? OR email = ?').get(googleId, email) as any;
+    if (user) {
+      db.prepare("UPDATE users SET google_id = COALESCE(?, google_id), avatar_url = COALESCE(?, avatar_url), name = COALESCE(NULLIF(?, ''), name) WHERE id = ?").run(googleId, avatarUrl, name, user.id);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id) as any;
+    } else {
+      const id = randomUUID(), now = new Date().toISOString();
+      db.prepare('INSERT INTO users(id, name, email, password_hash, google_id, avatar_url, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)').run(id, name, email, googleId, avatarUrl, now);
+      user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
+    }
+    const token = signJwt({ sub: user.id, email: user.email, name: user.name });
+    return { token, user: this.publicUser(user) };
+  }
+  me(authHeader?: string) {
+    const token = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
+    if (!token) throw new UnauthorizedException('Não autenticado.');
+    const payload = verifyJwt(token);
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub) as any;
+    if (!user) throw new UnauthorizedException('Sessão inválida.');
+    return { user: this.publicUser(user) };
+  }
 }
 @Controller() class Routes {
   constructor(@Inject(Business) private readonly b: Business) {}
   @Get('health') health(){return {status:'ok',service:'nest-business-api'};}
+  @Get('auth/config') getAuthConfig(){return this.b.getAuthConfig();}
+  @Post('auth/config') @HttpCode(200) saveAuthConfig(@Body() body:any){return this.b.saveAuthConfig(body);}
+  @Post('auth/register') register(@Body() body:any){return this.b.register(body);}
+  @Post('auth/login') @HttpCode(200) login(@Body() body:any){return this.b.login(body);}
+  @Post('auth/google') @HttpCode(200) google(@Body() body:any){return this.b.googleAuth(body);}
+  @Get('auth/me') me(@Headers('authorization') auth?:string){return this.b.me(auth);}
   @Get('history') history(@Query() query:Record<string,unknown>){return this.b.history.list(query);}
   @Get('history/:id') historyDetail(@Param('id') id:string){return this.b.history.detail(id);}
   @Get('requests') list(){return this.b.list();}

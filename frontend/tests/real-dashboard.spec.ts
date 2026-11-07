@@ -29,6 +29,7 @@ test("completed Telegram quote without source URL confirms by persisted quote id
     selected_product_url: null, quote: { id: quoteId, supplier_name: "Fornecedor Telegram", product_name: "Cascalho", product_url: "", final_price: "12.00", shipping_fee: "5.00", final_tco: "41.00", event_id: "telegram-event", conditions: "" },
     purchase_simulation: null, audit: { additional_cost_total: "0.00" },
   };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-07T00:00:00.000Z" } } }));
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "0", cost_avoidance: "0", final_spend: "0", completed_count: 1, active_count: 0, verified_suppliers_count: 0, pending_tco_count: 0 } } }));
   let decisionBody: any; let decisionKey = ""; let decisionAttempts = 0; let cancelUrl = "";
   await page.route(`**/api/request/${id}/decision`, async route => {
@@ -37,7 +38,7 @@ test("completed Telegram quote without source URL confirms by persisted quote id
     await route.fulfill({ status: decisionAttempts === 1 ? 503 : 201, json: decisionAttempts === 1 ? { detail: "Falha simulada" } : row.purchase_simulation });
   });
   await page.route(`**/api/request/${id}/purchase-simulation/cancel`, async route => { cancelUrl = route.request().url(); row.purchase_simulation = { id: "sim-1", status: "cancelled", quote_id: quoteId }; await route.fulfill({ json: row.purchase_simulation }); });
-  await page.goto("/");
+  await page.goto("/dashboard");
   await page.locator("#kanban").getByRole("button", { name: /Cascalho real/ }).click();
   const drawer = page.getByRole("dialog", { name: "Cascalho real" });
   await expect(drawer).toBeVisible();
@@ -81,6 +82,7 @@ test("drawer displays partial supplier quote + market options in NEGOTIATING and
     quote: { id: supplierQuoteId, supplier_name: "Fornecedor Telegram", product_name: "Memória RAM DDR4", product_url: "", initial_price: "350.00", final_price: "350.00", shipping_fee: "7.00", fees_fee: "0.00", final_tco: "2457.00", delivery_time: "4 dias", delivery_days: 4, available_qty: 10, payment_terms: "somente pix", conditions: "somente pix" },
     purchase_simulation: null, preferred_market_quote_id: null, audit: { final_price: "350.00", shipping_fee: "7.00", additional_cost_total: "0.00", quantity: 7, product_subtotal: "2450.00", initial_tco: "2457.00", final_tco: "2457.00", market_tco: null, hard_savings: null, cost_avoidance: null, delivery_days: 4, delivery_day_type: "unknown", justification: "Cotação confirmada pelo fornecedor no canal autorizado.", limitations: [], evidence_message_ids: [], audited_at: "2026-11-07T15:10:00.000Z" },
   };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-07T00:00:00.000Z" } } }));
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 2, runs: [negotiatingRow, doneRow], metrics: { hard_savings: "0", cost_avoidance: "0", final_spend: "2457.00", completed_count: 1, active_count: 1, verified_suppliers_count: 2, pending_tco_count: 0 } } }));
   let marketPayloads: any[] = [];
   await page.route(`**/api/request/${doneId}/market-preference`, async route => {
@@ -90,7 +92,7 @@ test("drawer displays partial supplier quote + market options in NEGOTIATING and
     doneRow.version += 1;
     await route.fulfill({ status: 201, json: doneRow });
   });
-  await page.goto("/");
+  await page.goto("/dashboard");
   await page.getByRole("region", { name: "Aguardando cotação" }).getByRole("button", { name: /Monitor Dell 24/ }).click();
   const negDrawer = page.getByRole("dialog", { name: "Monitor Dell 24" });
   await expect(negDrawer.getByRole("region", { name: "Composição do TCO" })).toContainText("Extração em andamento");
@@ -114,7 +116,7 @@ test("drawer displays partial supplier quote + market options in NEGOTIATING and
 });
 
 test("starts with real data only and combines metrics and Kanban", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   const response = await page.request.get("/api/godmode/dashboard");
   const data = await response.json();
@@ -149,7 +151,7 @@ test("submits a real discovery and shows evidence or an explicit collection fail
   test.setTimeout(90000);
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Nova solicitação", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Nova solicitação" });
@@ -213,10 +215,11 @@ test("submits a real discovery and shows evidence or an explicit collection fail
 
 test("mobile layout fits and lost API access does not introduce demo prices", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/real-dashboard-mobile.png", fullPage: true });
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-07T00:00:00.000Z" } } }));
   await page.route("**/api/godmode/dashboard", route => route.abort());
   await page.getByRole("button", { name: "Atualizar dados" }).click();
   await expect(page.getByText("Sem conexão", { exact: true })).toBeVisible();
@@ -225,7 +228,7 @@ test("mobile layout fits and lost API access does not introduce demo prices", as
 });
 
 test("sandbox observer renders both roles, polls, and stops when closed", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Testar no meu Telegram" }).click();
   const form = page.getByRole("dialog", { name: "Teste ao vivo no Telegram" });
@@ -270,9 +273,10 @@ test("drawer shows audited quantity, freight and traceable savings", async ({ pa
   const source = { product_url: "https://example.com/product", supplier_name: "Test fixture", supplier_domain: "example.com", price: "100.00", currency: "BRL", product_name: "Produto do teste de interface", observed_at: new Date().toISOString() };
   const audit = { shipping_savings: "15.00", tco_savings: "75.00", final_price: "80.00", shipping_fee: "5.00", quantity: 2, product_subtotal: "160.00", initial_tco: "240.00", final_tco: "165.00", market_tco: "200.00", hard_savings: "60.00", cost_avoidance: "40.00", delivery_days: 5, delivery_day_type: "business", justification: "Cotação auditada com frete e quantidade confirmados.", limitations: [], evidence_message_ids: [2, 4], audited_at: new Date().toISOString() };
   const row = { id: 901, item: "Produto do teste de interface", qty: 2, mode: "live", delivery_location: "São Paulo", status: "DONE", stage: "completed", target_basis: "complete_tco", tco_base: "200.00", target_price: "170.00", market_average: "100.00", hard_savings: "60.00", cost_avoidance: "40.00", audit, quote: { ...audit, conditions: "Pix", delivery_time: "5 dias úteis" }, candidates: [], errors: [], sources: [source], reputations: [], selected_product_url: source.product_url };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-07T00:00:00.000Z" } } }));
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "60.00", cost_avoidance: "40.00", final_spend: "165.00", completed_count: 1, active_count: 0, verified_suppliers_count: 1, pending_tco_count: 0 } } }));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/dashboard");
   const metrics = page.getByRole("region", { name: "Indicadores de economia" });
   await expect(metrics.getByRole("heading", { name: "Final Negotiated Amount" })).toBeVisible();
   await page.locator("#kanban").getByRole("button", { name: /Produto do teste de interface/ }).click();

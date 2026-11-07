@@ -16,6 +16,9 @@ services:
       WHATSAPP_INSTANCE_NAME: ${WHATSAPP_INSTANCE_NAME:-nexo}
       WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:-}
       VOICE_WEBHOOK_SECRET: ${VOICE_WEBHOOK_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-nexo-dev-jwt-secret-change-in-production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes: [business-data:/data]
     ports: ["127.0.0.1:4000:4000"]
     depends_on: [agents]
@@ -46,6 +49,9 @@ services:
       context: ./frontend
     environment:
       API_URL: http://api:4000
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      JWT_SECRET: ${JWT_SECRET:-nexo-dev-jwt-secret-change-in-production}
     ports: ["127.0.0.1:3000:3000"]
     depends_on: [api]
   # Evolution keeps its own infrastructure; the business API continues using SQLite.

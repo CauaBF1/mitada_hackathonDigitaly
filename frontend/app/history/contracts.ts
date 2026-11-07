@@ -1,5 +1,5 @@
-export const stageLabels: Record<string, string> = { recebida:'Recebida', pesquisando:'Em pesquisa', aguardando:'Aguardando cotação', comparação:'Em comparação', decidida:'Decidida' };
-export const stageStyles: Record<string, string> = { recebida:'bg-slate-100 text-slate-600', pesquisando:'bg-blue-50 text-blue-700', aguardando:'bg-amber-50 text-amber-800', comparação:'bg-violet-50 text-violet-700', decidida:'bg-emerald-50 text-emerald-700' };
+export const stageLabels: Record<string, string> = { recebida:'Recebida', pesquisando:'Em pesquisa', aguardando:'Aguardando cotação', comparação:'Em comparação', concluida:'Concluída', decidida:'Decidida' };
+export const stageStyles: Record<string, string> = { recebida:'bg-slate-100 text-slate-600', pesquisando:'bg-blue-50 text-blue-700', aguardando:'bg-amber-50 text-amber-800', comparação:'bg-violet-50 text-violet-700', concluida:'bg-emerald-50 text-emerald-700', decidida:'bg-emerald-50 text-emerald-700' };
 export const dateTime = (value: string) => new Intl.DateTimeFormat('pt-BR', { dateStyle:'short', timeStyle:'short' }).format(new Date(value));
 export function moneyCents(value: number | null) {
   if (value === null || !Number.isSafeInteger(value)) return 'Não informado';

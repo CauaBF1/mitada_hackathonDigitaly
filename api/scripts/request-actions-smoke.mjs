@@ -16,7 +16,7 @@ const stub = createServer(async (req, res) => {
   const body=JSON.parse(Buffer.concat(chunks).toString() || '{}');
   let result={};
   if (req.url === '/tasks') { tasks.push(body); result={accepted:true}; }
-  else if (req.url === '/interpret-quote') {
+  else if (req.url === '/interpret-quote' || (req.url === '/conversation-turn' && body.phase !== 'opening')) {
     startedInterpretation?.();
     if (delayInterpretation) await new Promise(resolve => {releaseInterpretation=resolve;});
     result={unit_cents:null,pending:['frete']};

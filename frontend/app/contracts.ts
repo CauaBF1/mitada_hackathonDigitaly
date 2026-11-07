@@ -16,6 +16,7 @@ export interface PurchaseRequest { discovery_justification: string | null; disco
 export interface Metrics { hard_savings: Money; cost_avoidance: Money; final_spend: Money; completed_count: number; active_count: number; verified_suppliers_count: number; pending_tco_count: number }
 export interface Dashboard { metrics_available?: boolean; runs: PurchaseRequest[]; metrics: Metrics; total_runs: number; data_mode: "real" }
 export interface AgentEvent { id: number; run_id: string; created_at: string; stage: string; level: string; message: string }
+export interface AuthUser { id: string; name: string; email: string; google_id: string | null; avatar_url: string | null; created_at: string }
 export function referenceProduct(row: PurchaseRequest): Product | undefined {
   const selected = row.sources.find(source => source.product_url === row.selected_product_url);
   const domains = row.discovery_plan?.approved_suppliers || [];
@@ -27,9 +28,12 @@ function cents(value: Money): bigint { const negative = value.startsWith("-"); c
 export function brl(value: Money | null | undefined): string { if (value == null) return "—"; const amount = cents(value); const absolute = amount < 0n ? -amount : amount; return `${amount < 0n ? "−" : ""}R$ ${(absolute / 100n).toLocaleString("pt-BR")},${String(absolute % 100n).padStart(2, "0")}`; }
 export function safeUrl(value: string | null | undefined): string | undefined { try { const url = new URL(value || ""); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password ? url.href : undefined; } catch { return undefined; } }
 export async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("nexo_token") : null;
+  const headers = new Headers(init.headers);
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
   const timeout = path.endsWith("/reputation-refresh") ? 40000 : path.startsWith("/integrations/") || path === "/suppliers/invite" ? 30000 : 12000;
-  const response = await fetch(`${API}${path}`, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
+  const response = await fetch(`${API}${path}`, { ...init, headers, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : `Não foi possível concluir a operação (${response.status}).`);
+  if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : typeof body?.message === "string" ? body.message : `Não foi possível concluir a operação (${response.status}).`);
   return body;
 }

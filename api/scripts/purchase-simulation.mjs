@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -84,7 +84,7 @@ const env = { ...process.env, PORT: String(port), DATABASE_PATH: dbPath, INTERNA
 const apiDir = new URL('..', import.meta.url).pathname;
 
 function startApi() {
-  const proc = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], { cwd: apiDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(process.execPath, existsSync(join(apiDir, 'dist/main.js')) ? ['dist/main.js'] : ['--import', 'tsx', 'src/main.ts'], { cwd: apiDir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   proc.stdout.on('data', chunk => logs += chunk); proc.stderr.on('data', chunk => logs += chunk);
   return proc;
 }

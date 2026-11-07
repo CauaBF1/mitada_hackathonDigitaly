@@ -241,9 +241,16 @@ def bound_call(reference: CallReference) -> VoiceCall:
             # Auto-registra chamadas que chegam do Vapi (web calls ou chamadas de teste)
             metadata = reference.metadata or {}
             request_id = metadata.get("request_id")
+            if isinstance(request_id, int) and session.scalar(select(VoiceCall).where(VoiceCall.request_id == request_id)) is not None:
+                raise HTTPException(404, "Chamada não registrada.")
             purchase = session.get(PurchaseRequest, request_id) if isinstance(request_id, int) else None
             if purchase is None:
-                purchase = session.scalar(select(PurchaseRequest).order_by(PurchaseRequest.id.desc()).limit(1))
+                purchase = session.scalar(
+                    select(PurchaseRequest)
+                    .where(~PurchaseRequest.id.in_(select(VoiceCall.request_id)))
+                    .order_by(PurchaseRequest.id.desc())
+                    .limit(1)
+                )
             if purchase is None:
                 supplier = session.scalar(select(Supplier).limit(1))
                 if supplier is None:
@@ -269,6 +276,16 @@ def bound_call(reference: CallReference) -> VoiceCall:
             )
             session.add(call)
             session.flush()
+        else:
+            metadata = reference.metadata or {}
+            for key in ("request_id", "supplier_id"):
+                if key in metadata and (
+                    type(metadata[key]) is not int or metadata[key] != getattr(call, key)
+                ):
+                    raise HTTPException(409, "Os metadados não correspondem à chamada registrada.")
+            purchase = session.get(PurchaseRequest, call.request_id)
+            if purchase is None or purchase.supplier_id != call.supplier_id:
+                raise HTTPException(409, "O fornecedor da solicitação foi alterado.")
         return call
 
 
