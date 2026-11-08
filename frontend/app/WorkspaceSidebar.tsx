@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Activity, Command, History, Layers3, LogOut, Settings } from 'lucide-react';
+import { Activity, BarChart3, Command, History, Layers3, LogOut, Settings } from 'lucide-react';
 import { safeUrl, type AuthUser } from './contracts';
 
 function initialsFromName(name: string): string {
@@ -22,7 +22,7 @@ export function UserAvatar({ url, name, sizeClass, textClass }: { url: string | 
   return <span className={`flex ${sizeClass} shrink-0 items-center justify-center rounded-full bg-blue-50 font-bold text-blue-700 ${textClass}`}>{initialsFromName(name || 'Equipe de compras')}</span>;
 }
 
-export default function WorkspaceSidebar({ active, total, user, onLogout }: { active: 'overview' | 'history'; total?: number; user?: AuthUser | null; onLogout?: () => void }) {
+export default function WorkspaceSidebar({ active, total, user, onLogout }: { active: 'overview' | 'history' | 'analysis'; total?: number; user?: AuthUser | null; onLogout?: () => void }) {
   const link = 'flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-slate-50';
   return <aside aria-label="Workspace" className="fixed inset-y-0 left-0 z-20 hidden w-[218px] flex-col border-r border-slate-200/80 bg-white px-5 py-7 xl:flex">
     <Link href="/" className="flex items-center gap-2.5 px-2 text-[28px] font-bold tracking-[-0.07em]"><span className="flex size-8 items-center justify-center rounded-lg bg-blue-600 text-white"><Command size={19} /></span>nexo<span className="text-blue-600">.</span></Link>
@@ -30,6 +30,7 @@ export default function WorkspaceSidebar({ active, total, user, onLogout }: { ac
     <p className="mb-3 px-3 text-[9px] font-semibold uppercase tracking-[0.15em] text-slate-400">Workspace</p>
     <nav aria-label="Navegação do workspace" className="space-y-1 text-xs">
       <Link href="/dashboard" aria-current={active === 'overview' ? 'page' : undefined} className={`${link} ${active === 'overview' ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-500'}`}><Layers3 size={17} />Visão geral</Link>
+      <Link href="/dashboard/analise-economica" aria-current={active === 'analysis' ? 'page' : undefined} className={`${link} ${active === 'analysis' ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-500'}`}><BarChart3 size={17} className="shrink-0" /><span>Dashboard /<br />Análise Econômica</span></Link>
       <Link href="/dashboard#kanban" className={`${link} text-slate-500`}><Activity size={17} />Solicitações{total !== undefined && <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px]">{total}</span>}</Link>
       <Link href="/history" aria-current={active === 'history' ? 'page' : undefined} className={`${link} ${active === 'history' ? 'bg-blue-50 font-semibold text-blue-700' : 'text-slate-500'}`}><History size={17} />Histórico</Link>
       <Link href="/settings" className={`${link} text-slate-500`}><Settings size={17} />Conexões e contatos</Link>

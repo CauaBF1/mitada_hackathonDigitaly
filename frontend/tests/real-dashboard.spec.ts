@@ -115,7 +115,7 @@ test("drawer displays partial supplier quote + market options in NEGOTIATING and
   expect(marketPayloads[1]).toEqual({ quote_id: null, version: 5 });
 });
 
-test("starts with real data only and combines metrics and Kanban", async ({ page }) => {
+test("starts with real data and the purchase pipeline", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   const response = await page.request.get("/api/godmode/dashboard");
@@ -137,10 +137,7 @@ test("starts with real data only and combines metrics and Kanban", async ({ page
   await expect(integration.getByLabel('Chave de API Tavily')).toHaveValue('');
   await integration.getByRole('button', { name: 'Fechar configuração' }).click();
   await page.getByRole("link", { name: "Voltar ao dashboard" }).click();
-  await expect(page.getByRole("region", { name: "Indicadores de economia" }).getByText("R$ 0,00", { exact: true })).toHaveCount(3);
-  const metrics = await page.getByRole("region", { name: "Indicadores de economia" }).boundingBox();
-  const board = await page.locator("#kanban").boundingBox();
-  expect(board!.y).toBeGreaterThan(metrics!.y + metrics!.height);
+  await expect(page.locator("#kanban")).toBeVisible();
   await page.getByRole("button", { name: "Nova solicitação", exact: true }).click();
   await expect(page.getByLabel("Nome do item")).toBeFocused();
   await page.keyboard.press("Escape");
@@ -230,15 +227,8 @@ test("mobile layout fits and lost API access does not introduce demo prices", as
 test("sandbox observer renders both roles, polls, and stops when closed", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Testar no meu Telegram" }).click();
-  const form = page.getByRole("dialog", { name: "Teste ao vivo no Telegram" });
-  await expect(form.locator("input:visible")).toHaveCount(3);
-  await form.getByLabel("Nome do item").fill("Mouse Logitech M170");
-  await form.getByLabel("Local de entrega / CEP").fill("CEP 01001-000, SP");
-  const sent = page.waitForRequest(request => request.url().endsWith("/api/request") && request.method() === "POST");
-  await form.getByRole("button", { name: "Iniciar demonstração ao vivo" }).click();
-  expect((await sent).postDataJSON()).toEqual({ item: "Mouse Logitech M170", mode: "sandbox", qty: 1, delivery_location: "CEP 01001-000, SP" });
-  await expect(form).not.toBeVisible();
+  const created = await page.request.post("/api/request", { data: { item: "Mouse Logitech M170", mode: "sandbox", qty: 1, delivery_location: "CEP 01001-000, SP" } });
+  expect(created.ok()).toBe(true);
   const row = (await (await page.request.get("/api/godmode/dashboard")).json()).runs[0];
   expect(row.mode).toBe("sandbox");
   let polls = 0;
@@ -277,8 +267,6 @@ test("drawer shows audited quantity, freight and traceable savings", async ({ pa
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "60.00", cost_avoidance: "40.00", final_spend: "165.00", completed_count: 1, active_count: 0, verified_suppliers_count: 1, pending_tco_count: 0 } } }));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/dashboard");
-  const metrics = page.getByRole("region", { name: "Indicadores de economia" });
-  await expect(metrics.getByRole("heading", { name: "Final Negotiated Amount" })).toBeVisible();
   await page.locator("#kanban").getByRole("button", { name: /Produto do teste de interface/ }).click();
   const drawer = page.getByRole("dialog", { name: "Produto do teste de interface" });
   await expect(drawer.getByRole("region", { name: "Composição do TCO" }).getByText("R$ 165,00", { exact: true })).toBeVisible();

@@ -4,15 +4,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   Activity,
+  ArrowRight,
   Award,
   BarChart3,
   Bot,
   CalendarCheck,
   CheckCircle2,
   ClipboardCheck,
+  CircleDollarSign,
   Command,
-  Cpu,
-  Database,
   FileCheck2,
   FolderOpen,
   Globe2,
@@ -20,6 +20,7 @@ import {
   Link2,
   Lock,
   MessageSquare,
+  PieChart,
   RefreshCw,
   Scale,
   Search,
@@ -30,7 +31,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { requestJson, type AuthUser, type Dashboard } from "./contracts";
+import { brl, requestJson, type AuthUser, type Dashboard } from "./contracts";
 
 interface HoverCardProps {
   href?: string;
@@ -122,6 +123,75 @@ function NexoBrandLogo({ light = true }: { light?: boolean }) {
   );
 }
 
+const economicPreviewQuotes = [
+  { id: 'orbita', name: 'Órbita', initialUnit: 120000, unit: 98000, shipping: 20000, days: 7, reputation: '8,9' },
+  { id: 'prisma', name: 'Prisma', initialUnit: 110000, unit: 102000, shipping: 0, days: 3, reputation: '8,1' },
+  { id: 'atlas', name: 'Atlas', initialUnit: 100000, unit: 100000, shipping: 30000, days: 10, reputation: '9,3' },
+] as const;
+const previewMoney = (cents: number) => brl((cents / 100).toFixed(2));
+
+function EconomicAnalysisPreview() {
+  const [selectedId, setSelectedId] = useState<string>('orbita');
+  const selected = economicPreviewQuotes.find(quote => quote.id === selectedId) ?? economicPreviewQuotes[0];
+  const quantity = 10;
+  const marketUnit = economicPreviewQuotes.reduce((sum, quote) => sum + quote.initialUnit, 0) / economicPreviewQuotes.length;
+  const hardSavings = (selected.initialUnit - selected.unit) * quantity;
+  const costAvoidance = (marketUnit - selected.unit) * quantity;
+  const savingsScale = Math.max(...economicPreviewQuotes.map(quote => (quote.initialUnit - quote.unit) * quantity), 1);
+  const metrics = [
+    { label: 'Hard Savings', value: hardSavings, explanation: 'Primeira cotação − preço final, por quantidade', color: 'bg-emerald-400', text: 'text-emerald-300' },
+    { label: 'Cost Avoidance', value: costAvoidance, explanation: 'Média de mercado − preço final, por quantidade', color: 'bg-sky-400', text: 'text-sky-300' },
+  ];
+  return (
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white text-slate-900 shadow-2xl shadow-blue-950/10">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:px-7">
+        <div className="flex items-center gap-2 text-sm font-bold"><Command size={18} className="text-[#415AFF]" />nexo<span className="text-[#019EFD]">.</span></div>
+        <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">Prévia interativa · valores ilustrativos</span>
+      </div>
+      <div className="flex flex-wrap gap-4 border-b border-slate-100 px-5 py-3 text-[11px] sm:px-7 sm:text-xs" aria-label="Organização do workspace na prévia">
+        <span className="flex items-center gap-2 font-semibold text-[#415AFF]"><PieChart size={15} />Dashboard / Análise Econômica</span>
+        <span className="text-slate-500">Solicitações</span><span className="text-slate-500">Histórico</span>
+      </div>
+      <div className="space-y-6 p-5 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#415AFF]">Impacto da decisão</p><h3 className="mt-2 text-xl font-bold sm:text-2xl">Cada escolha conta. Veja quanto.</h3></div>
+          <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">Lote de {quantity} unidades · BRL</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <p className="flex items-center gap-2 text-xs font-semibold text-slate-500"><Search size={16} />Cotações encontradas</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight">{previewMoney(marketUnit)}</p><p className="mt-1 text-xs text-slate-500">Preço unitário médio · 3 opções de mercado</p>
+            <div className="mt-4 flex justify-between gap-2 border-t border-slate-200 pt-3 text-xs"><span className="text-slate-500">Primeira cotação · {selected.name}</span><span className="font-semibold">{previewMoney(selected.initialUnit)}/un.</span></div>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-[#415AFF]/25 bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
+            <p className="flex items-center gap-2 text-xs font-semibold text-[#415AFF]"><CheckCircle2 size={16} />Opção selecionada · {selected.name}</p>
+            <p className="mt-4 text-3xl font-bold tracking-tight text-[#415AFF]">{previewMoney(selected.unit)}</p><p className="mt-1 text-xs text-slate-500">Preço unitário final negociado</p>
+            <div className="mt-4 flex justify-between gap-2 border-t border-blue-100 pt-3 text-xs"><span className="text-slate-500">Total com frete · taxas zero</span><span className="font-bold text-[#415AFF]">{previewMoney(selected.unit * quantity + selected.shipping)}</span></div>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-[#101827] p-5 text-white sm:p-6" aria-label="Gráfico ilustrativo de economia nos produtos">
+          <div className="mb-5 flex items-center justify-between gap-3"><h4 className="flex items-center gap-2 text-sm font-semibold"><TrendingDown size={17} />Economia em perspectiva</h4><span className="text-[10px] text-slate-400">Mesma escala em reais</span></div>
+          <div className="grid gap-6 sm:grid-cols-2">{metrics.map(metric => <div key={metric.label}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2"><span className={`text-xs font-medium ${metric.text}`}>{metric.label}</span><span className="text-xl font-bold">{previewMoney(metric.value)}</span></div>
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-white/10" role="meter" aria-label={metric.label} aria-valuemin={0} aria-valuemax={savingsScale} aria-valuenow={metric.value} aria-valuetext={previewMoney(metric.value)}><div className={`h-full rounded-full transition-all duration-500 motion-reduce:transition-none ${metric.color}`} style={{ width: `${metric.value / savingsScale * 100}%` }} /></div>
+            <p className="mt-2 text-[10px] leading-relaxed text-slate-400">{metric.explanation}</p>
+          </div>)}</div>
+          <p className="mt-5 border-t border-white/10 pt-3 text-[10px] leading-relaxed text-slate-400">São duas referências para a mesma decisão: os indicadores não devem ser somados. Frete e taxas compõem o total da opção escolhida.</p>
+        </div>
+        <fieldset>
+          <legend className="flex items-center gap-2 text-sm font-bold"><Scale size={18} className="text-[#415AFF]" />Preço, prazo ou reputação? Compare o equilíbrio.</legend>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">Selecione outra cotação para atualizar os gráficos. O menor preço pode ter um prazo maior.</p>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">{economicPreviewQuotes.map(quote => <button key={quote.id} type="button" aria-pressed={selectedId === quote.id} onClick={() => setSelectedId(quote.id)} className={`min-w-0 rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#415AFF] ${selectedId === quote.id ? 'border-[#415AFF] bg-indigo-50 ring-1 ring-[#415AFF]' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+            <div className="flex items-center justify-between gap-2 text-xs font-bold"><span>Fornecedor {quote.name}</span>{selectedId === quote.id && <CheckCircle2 size={16} className="text-[#415AFF]" />}</div>
+            <dl className="mt-4 grid grid-cols-3 gap-2"><div><dt className="text-[9px] text-slate-500">Custo total</dt><dd className="mt-1 text-[11px] font-bold">{previewMoney(quote.unit * quantity + quote.shipping)}</dd></div><div><dt className="text-[9px] text-slate-500">Entrega</dt><dd className="mt-1 text-[11px] font-bold">{quote.days} dias</dd></div><div><dt className="text-[9px] text-slate-500">ReclameAqui</dt><dd className="mt-1 text-[11px] font-bold">{quote.reputation}/10</dd></div></dl>
+          </button>)}</div>
+        </fieldset>
+        <p className="text-[10px] leading-relaxed text-slate-400">Fornecedores, preços e notas fictícios para demonstrar a interface. No workspace, a análise usa as cotações e evidências disponíveis para cada compra.</p>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
@@ -159,13 +229,13 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white text-[#121212] [color-scheme:light] selection:bg-[#019EFD] selection:text-white">
       {/* =====================================================================
           SECTION 1: HERO
-          Gradient linear-gradient(90deg, #059FFD 0%, #4B53FD 100%)
+          Gradient linear-gradient(90deg, #019EFD 0%, #415AFF 100%)
           Bottom triangle SVG shape divider
          ===================================================================== */}
       <section
         className="relative flex min-h-[82vh] flex-col justify-between overflow-hidden px-5 pb-20 pt-6 text-white"
         style={{
-          backgroundImage: "linear-gradient(90deg, #059FFD 0%, #4B53FD 100%)",
+          backgroundImage: "linear-gradient(90deg, #019EFD 0%, #415AFF 100%)",
         }}
       >
         {/* Subtle decorative geometric rings matching Nexo dashboard banner */}
@@ -189,7 +259,7 @@ export default function LandingPage() {
               Telegram Bot
             </a>
             <a href="#modulo-4" className="transition hover:text-white hover:underline">
-              Agente Analítico
+              Análise Econômica
             </a>
             <a href="#beneficios" className="transition hover:text-white hover:underline">
               Benefícios
@@ -216,10 +286,11 @@ export default function LandingPage() {
         {/* Hero Center Content */}
         <div className="relative z-10 mx-auto my-auto flex w-full max-w-[1140px] flex-col items-center py-10 text-center">
           <h1 className="text-[42px] font-black leading-[1.08] tracking-tight text-white sm:text-[62px] lg:text-[75px]">
-            Conheça o Nexo
+            Compre com inteligência.
+            <br /><span className="text-white/85">Veja o impacto de cada decisão.</span>
           </h1>
           <p className="mt-6 max-w-[92%] text-[15px] font-medium leading-relaxed text-white sm:text-[17px]">
-            Uma plataforma de Inteligência de Compras com IA que conecta descoberta autônoma de fornecedores, auditoria de reputação no ReclameAqui, negociação omnichannel via Telegram e cálculo determinístico de TCO para automatizar cotações B2B, reduzir esforço manual e gerar economia real comprovada — trazendo mais eficiência, controle operacional e valor estratégico para sua equipe de compras.
+            Pesquise fornecedores, negocie com IA e transforme cada escolha em inteligência econômica. Compare cotações e visualize, em relatórios e gráficos instantâneos, a economia negociada, os custos evitados e o impacto financeiro da sua decisão.
           </p>
 
           <div className="mt-10 flex w-full flex-col items-center justify-center gap-4 sm:flex-row">
@@ -254,7 +325,7 @@ export default function LandingPage() {
               Uma Plataforma Unificada de Inteligência em Compras
             </h2>
             <p className="mt-4 pb-6 text-[15px] font-normal leading-relaxed text-[#404040] sm:text-[19px]">
-              O Nexo é uma plataforma modular projetada para otimizar compras corporativas e cotações B2B. Ele elimina buscas manuais repetitivas, integra agentes autônomos em LangGraph, verifica reputação de fornecedores, automatiza negociações via Telegram e aplica Inteligência Artificial para melhorar a governança, a conformidade e o desempenho financeiro (TCO).
+              O Nexo é uma plataforma modular projetada para otimizar compras corporativas e cotações B2B. Da pesquisa à escolha final, reúne reputação, negociação e custo total em um só fluxo. O Dashboard Econômico transforma as cotações em comparativos visuais para você entender o retorno da negociação e decidir com clareza.
             </p>
           </div>
 
@@ -279,9 +350,9 @@ export default function LandingPage() {
             />
             <NexoHoverCard
               href="#modulo-4"
-              icon={Bot}
-              title="Agente Analítico"
-              description="Nosso Agente de IA em LangGraph + Gemini atua em todas as etapas críticas da compra, garantindo Hard Savings e Cost Avoidance auditáveis."
+              icon={PieChart}
+              title="Dashboard Econômico & Análise de Decisão"
+              description="Compare a opção escolhida com o mercado e veja imediatamente o impacto da decisão em gráficos de Hard Savings, Cost Avoidance e custo total."
             />
           </div>
 
@@ -583,21 +654,21 @@ export default function LandingPage() {
         <div className="mx-auto max-w-[1140px]">
           <ModuleBadge text="Módulo 04" />
           <h2 className="text-[32px] font-semibold leading-tight text-black sm:text-[42px]">
-            Agente Analítico & Arquitetura
+            Dashboard Econômico & Análise de Decisão
           </h2>
           <h3 className="mt-1 text-[18px] font-semibold text-[#7B7B7B] sm:text-[30px]">
-            A Tecnologia Por Trás da Inovação
+            Da cotação ao impacto financeiro, em uma visão.
           </h3>
           <p className="mt-4 text-[15px] font-normal leading-relaxed text-[#2B2B2B] sm:text-[17px]">
-            O núcleo de inteligência do Nexo combina três serviços isolados (API NestJS, Agentes Python LangGraph e Next.js) com múltiplos modelos de IA (Gemini 3.8 Flash e Groq Llama 3.3) para analisar propostas com precisão sem precedentes.
+            Entenda o que sua escolha representa. O Dashboard / Análise Econômica compara as cotações encontradas com a opção selecionada e apresenta relatórios e gráficos do impacto financeiro, com o contexto de prazo e reputação que uma planilha de preços não mostra.
           </p>
 
           <div className="mt-8 grid gap-8 md:grid-cols-2">
             <ul className="divide-y divide-[#ddd]">
               {[
-                { icon: ShieldAlert, text: "Detecção automática de inconsistências e divergências de especificação" },
-                { icon: MessageSquare, text: "Interação em linguagem natural via Telegram ou comando direto /quote" },
-                { icon: Layers, text: "Modo Sandbox isolado para simulação ao vivo de cenários de compra" },
+                { icon: BarChart3, text: "Comparativo visual entre cotações de mercado e a opção selecionada" },
+                { icon: TrendingDown, text: "Hard Savings e Cost Avoidance com suas referências de cálculo" },
+                { icon: Scale, text: "Análise de trade-off entre preço, prazo de entrega e reputação ReclameAqui" },
               ].map(item => (
                 <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
                   <item.icon size={22} className="shrink-0 text-[#019EFD]" />
@@ -607,9 +678,9 @@ export default function LandingPage() {
             </ul>
             <ul className="divide-y divide-[#ddd]">
               {[
-                { icon: Database, text: "Bancos SQLite separados para dados de negócio e checkpoints de agentes" },
-                { icon: FileCheck2, text: "Relatórios de auditoria e justificativas factuais automatizadas" },
-                { icon: Cpu, text: "Memória tática de fornecedores e histórico de concessões anteriores" },
+                { icon: CircleDollarSign, text: "Custo total da escolha, incluindo produtos, frete e taxas" },
+                { icon: FileCheck2, text: "Relatórios visuais instantâneos com contexto para justificar a decisão" },
+                { icon: PieChart, text: "Aba dedicada no workspace, ao lado de Solicitações e Histórico" },
               ].map(item => (
                 <li key={item.text} className="flex items-center gap-3.5 py-4 text-[15px] text-black">
                   <item.icon size={22} className="shrink-0 text-[#019EFD]" />
@@ -619,12 +690,14 @@ export default function LandingPage() {
             </ul>
           </div>
 
+          <div id="analise-economica" className="mt-10 scroll-mt-8"><EconomicAnalysisPreview /></div>
+
           <div className="mt-10">
             <h3 className="text-[22px] font-semibold text-black sm:text-[28px]">
               Inteligência Analítica Multidimensional
             </h3>
             <p className="mt-1 text-[15px] text-[#404040]">
-              Nossa IA analisa múltiplas dimensões de cada cotação para fornecer comparativos precisos e insights acionáveis:
+              Compare as dimensões da compra em conjunto e visualize o que muda ao escolher outro fornecedor:
             </p>
 
             {/* 4 Gradient Boxes */}
@@ -646,7 +719,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <BluePillButton href={primaryHref} label={ctaText} />
+          <div className="mt-8 flex justify-center"><Link href={user ? "/dashboard/analise-economica" : "/login"} className="inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-[#019EFD] to-[#415AFF] px-6 py-4 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:-translate-y-0.5 sm:text-base">Explorar a análise econômica<ArrowRight size={18} /></Link></div>
         </div>
       </section>
 
@@ -668,8 +741,8 @@ export default function LandingPage() {
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <NexoHoverCard
               icon={Layers}
-              title="Arquitetura Modular e Escalável"
-              description="Três serviços desacoplados em containers Docker (API NestJS, Agentes Python e Frontend Next.js) prontos para escalar."
+              title="Gráficos que Explicam a Decisão"
+              description="Transforme cotações em comparativos visuais e relatórios instantâneos do impacto econômico de cada escolha."
             />
             <NexoHoverCard
               icon={Globe2}
@@ -693,8 +766,8 @@ export default function LandingPage() {
             />
             <NexoHoverCard
               icon={BarChart3}
-              title="Inteligência Financeira para TCO"
-              description="Cálculo transparente de Hard Savings, Cost Avoidance e Custo Total de Propriedade auditado com evidências SHA-256."
+              title="Retorno Financeiro Visível"
+              description="Veja Hard Savings, Cost Avoidance e custo total com suas referências. Entenda o resultado da negociação antes de aprovar a compra."
             />
           </div>
         </div>
@@ -713,7 +786,7 @@ export default function LandingPage() {
             Transforme suas Operações de Compras com Automação Inteligente
           </h2>
           <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-white/95 sm:text-[18px]">
-            Unifique descoberta de fornecedores, auditoria de reputação, negociação via Telegram e cálculo de TCO em uma única plataforma movida por IA. Acesse agora o Nexo.
+            Unifique pesquisa, reputação e negociação com uma análise visual do impacto econômico. Compare alternativas, entenda os números e escolha com confiança no Nexo.
           </p>
 
           <div className="mt-9 flex w-full justify-center">
@@ -776,7 +849,7 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <a href="#modulo-4" className="transition hover:text-[#019EFD]">
-                    Módulo 04 · Agente Analítico
+                    Módulo 04 · Dashboard Econômico
                   </a>
                 </li>
                 <li>
@@ -792,8 +865,8 @@ export default function LandingPage() {
               <h2 className="text-[20px] font-bold text-white">Acesso Rápido</h2>
               <ul className="space-y-2 text-[15px] font-medium text-slate-300">
                 <li>
-                  <Link href="/dashboard" className="font-bold text-[#019EFD] hover:underline">
-                    Acessar Dashboard Nexo
+                  <Link href="/dashboard/analise-economica" className="font-bold text-[#019EFD] hover:underline">
+                    Dashboard / Análise Econômica
                   </Link>
                 </li>
                 <li>
