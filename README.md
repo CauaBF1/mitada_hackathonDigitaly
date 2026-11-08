@@ -70,6 +70,14 @@ Rotas principais:
 - `POST /webhook/telegram` (atualizações do bot; proposta direta no formato `/quote ID fornecedor|preço unitário|frete|taxas|prazo em dias|condições`, campos não confirmados vazios)
 - Serviço Python interno: `POST /tasks`, `GET /health`
 
+### Recomendação de compra com Jev
+
+Configure `TYPESAFE_API_KEY` (ou o nome compatível `JEV_API_KEY`) somente no ambiente do serviço API. `TYPESAFE_MODEL` seleciona o modelo (padrão `jev-1.14.0`). `SUPPLIER_PREFERENCE_FACTOR` define o fator aplicado à oferta direta (padrão `0.8`, ou 20% de preferência). A API envia ao Jev a solicitação e os fatos de oferta necessários para julgamentos de equivalência do produto e suporte das evidências. O Jev não calcula valores: a API calcula todos os subtotais e TCO em centavos inteiros.
+
+`POST /requests/:id/purchase-recommendation` recebe `{ "version": n }`. A resposta mostra a melhor oferta de mercado, a fonte mais confiável e a oferta usada no comparativo, cada uma com seus totais exatos quando disponíveis. Se faltarem frete ou taxas de qualquer lado, a comparação usa o mesmo subtotal de produto (`quantidade × preço unitário`) e lista as pendências; não estima custos desconhecidos. Equivalência e evidência só passam com probabilidade Jev de pelo menos `0.7`; respostas incertas deixam a decisão para revisão humana. Valores vencidos ou estoque conhecido insuficiente não são recomendados.
+
+`POST /requests/:id/purchase-recommendation/approval` recebe `{ "review_id": "…", "version": n, "approved": true|false }`. A aprovação registra a oferta preferida na revisão persistida; ela não inicia uma compra simulada, não envia mensagem ao fornecedor e não cobra. O fluxo de simulação existente permanece separado. O `GET /requests/:id` inclui `latest_purchase_recommendation` para restaurar a revisão após recarregar a página; mudanças na solicitação tornam a revisão antiga obsoleta.
+
 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` e `GEMINI_API_KEY` existem somente no ambiente dos serviços. Configure um webhook HTTPS com o segredo correspondente no Telegram. A integração processa comandos de proposta recebidos; o bot não inicia conversas com fornecedores nem presume autorização para contatá-los.
 
 ### Conversa e reputação internas

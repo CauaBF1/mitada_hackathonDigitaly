@@ -149,6 +149,7 @@ function asRun(row: any) {
   return {
     id: String(row.id), version: row.version, item: row.product, qty: row.qty, requested_target: null, target_price: null,
     market_average: marketAverage, status, stage: row.status, sources, reputations, reputation_indications, purchase_simulation: row.purchase_simulation || null,
+    latest_purchase_recommendation: row.latest_purchase_recommendation || null,
     whatsapp_pending: Array.isArray(row.whatsapp_pending) ? row.whatsapp_pending : [],
     quote_completion_state: row.quote_completion_state || "coletando",
     missing_fields: Array.isArray(draft?.missing_fields) ? draft.missing_fields : [],
@@ -332,6 +333,12 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const decision = endpoint.match(/^request\/([0-9a-f-]{36})\/decision$/i);
   if (request.method === "POST" && decision) {
     const response = await upstream(`requests/${decision[1]}/decision`, { method: "POST", headers: request.headers.get("Idempotency-Key") ? { "Idempotency-Key": request.headers.get("Idempotency-Key")! } : {}, body: await request.text() });
+    return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+  const purchaseRecommendation = endpoint.match(/^request\/([0-9a-f-]{36})\/purchase-recommendation(?:\/(approval))?$/i);
+  if (request.method === "POST" && purchaseRecommendation) {
+    const suffix = purchaseRecommendation[2] ? "/approval" : "";
+    const response = await upstream(`requests/${purchaseRecommendation[1]}/purchase-recommendation${suffix}`, { method: "POST", body: await request.text() });
     return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
   const marketPreference = endpoint.match(/^request\/([0-9a-f-]{36})\/market-preference$/i);

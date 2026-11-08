@@ -6,6 +6,76 @@ import { brl, referenceProduct, safeUrl, requestJson, type PurchaseRequest } fro
 
 import RequestActions from "./RequestActions";
 
+type RecommendationCandidate = {
+  offer_id: string;
+  supplier: string;
+  channel: "telegram" | "whatsapp" | "market";
+  source_url: string | null;
+  tco_cents: number | null;
+  comparison_amount_cents: number | null;
+  eligible: boolean;
+  equivalence_probability: number | null;
+  evidence_probability: number | null;
+  comparable: boolean;
+  reliable: boolean;
+  adjusted_tco_cents: number | null;
+};
+type PurchaseRecommendation = {
+  review_id: string;
+  version: number;
+  offer_hash: string;
+  recommendation: "supplier" | "market" | "review";
+  reason: string;
+  supplier_preference_factor: number;
+  actual_supplier_tco_cents: number | null;
+  adjusted_supplier_tco_cents: number | null;
+  adjusted_supplier_tco: string | null;
+  best_market_offer_id: string | null;
+  best_market_tco_cents: number | null;
+  most_reliable_market_offer_id: string | null;
+  most_reliable_market_tco_cents: number | null;
+  comparator_market_offer_id: string | null;
+  comparator_market_tco_cents: number | null;
+  supplier_offer_id: string | null;
+  selected_offer_id: string | null;
+  threshold_market_tco_cents: number | null;
+  candidates: RecommendationCandidate[];
+  explanation: string;
+  comparison_basis: "complete_tco" | "product_subtotal";
+  comparison_supplier_cents: number | null;
+  comparator_market_cents: number | null;
+  pending_checks: string[];
+  approval?: { approved: boolean; selected_offer_id: string | null; at: string } | null;
+  stale?: boolean;
+};
+
+function brlCents(value: number | null | undefined): string {
+  if (value == null || !Number.isSafeInteger(value)) return "Não informado";
+  return brl((value / 100).toFixed(2));
+}
+
+function percentage(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? "Não informado" : `${Math.round(value * 100)}%`;
+}
+
+function factor(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? "0,8" : value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+}
+
+function pendingChecksLabel(check: string): string {
+  return ({ shipping: "frete", fees: "taxas", availability: "estoque", lead_time: "prazo de entrega", product_confirmed: "confirmação do produto", destination_confirmed: "confirmação do destino" } as Record<string, string>)[check] || check;
+}
+
+function recommendationReason(review: PurchaseRecommendation): string {
+  const known: Record<string, string> = {
+    supplier_adjusted_cost_at_or_below_reliable_market: "O valor ajustado do fornecedor ficou abaixo ou igual ao comparador de mercado confiável.",
+    no_supplier_meets_preference_threshold_against_reliable_market: "Nenhum fornecedor ficou abaixo do limite de preferência; a oferta confiável do mercado foi recomendada.",
+    no_reliable_comparable_market_offer: "Não há oferta de mercado com produto equivalente e evidência confiável suficiente para recomendar uma opção.",
+    no_offers: "Ainda não há ofertas para comparar.",
+  };
+  return known[review.reason] || review.reason || review.explanation || "A recomendação foi calculada com as ofertas disponíveis.";
+}
+
 const MISSING_LABELS: Record<string, string> = {
   unit_cents: "preço unitário",
   shipping_cents: "frete",
@@ -31,10 +101,22 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
   const [marketError, setMarketError] = useState("");
   const [reputationBusy, setReputationBusy] = useState(false);
   const [reputationMessage, setReputationMessage] = useState("");
+  const [recommendation, setRecommendation] = useState<{ key: string; data: PurchaseRecommendation } | null>(null);
+  const [recommendationBusy, setRecommendationBusy] = useState(false);
+  const [recommendationError, setRecommendationError] = useState("");
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalOutcome, setApprovalOutcome] = useState<boolean | null>(null);
+  const recommendationBusyRef = useRef(false);
+  const approvalBusyRef = useRef(false);
   const idempotencyKey = useRef<{ key: string; quoteId: string; version: number } | null>(null);
   useEffect(() => {
     setDecisionError(""); setConfirmPurchase(false); setMarketError(""); setReputationMessage("");
-  }, [row?.id]);
+    const saved = row?.latest_purchase_recommendation as PurchaseRecommendation | null | undefined;
+    const currentSaved = row && saved?.review_id && saved.version === row.version && !saved.stale && Array.isArray(saved.candidates) ? saved : null;
+    setRecommendation(currentSaved && row ? { key: `${row.id}:${row.version}`, data: currentSaved } : null);
+    setRecommendationBusy(false); setRecommendationError(""); setApprovalBusy(false); setApprovalOutcome(currentSaved?.approval?.approved ?? null);
+    recommendationBusyRef.current = false; approvalBusyRef.current = false;
+  }, [row?.id, row?.version]);
   async function decide() { if (!row || decisionBusy || !row.quote?.id) return; if (!idempotencyKey.current || idempotencyKey.current.quoteId !== row.quote.id || idempotencyKey.current.version !== row.version) idempotencyKey.current = { key: crypto.randomUUID(), quoteId: row.quote.id, version: row.version }; setDecisionBusy(row.quote.id); setDecisionError(""); try { await requestJson(`/request/${row.id}/decision`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey.current.key }, body: JSON.stringify({ quote_id: row.quote.id, version: row.version, confirmed: true }) }); setConfirmPurchase(false); idempotencyKey.current = null; decided(); } catch (cause) { setDecisionError(cause instanceof Error ? cause.message : "Não foi possível registrar a decisão."); } finally { setDecisionBusy(null); } }
   async function selectMarketPreference(quoteId: string | null) {
     if (!row || marketBusy) return;
@@ -49,6 +131,40 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
   async function refreshReputation() { if (!row || reputationBusy) return; setReputationBusy(true); setReputationMessage(""); try { await requestJson(`/request/${row.id}/reputation-refresh`, { method: "POST" }); setReputationMessage("Reputação atualizada."); decided(); } catch (cause) { setReputationMessage(`Falha ao atualizar. Dados existentes preservados. ${cause instanceof Error ? cause.message : ""}`); } finally { setReputationBusy(false); } }
   const dialog = useRef<HTMLDialogElement>(null);
   const open = row !== null;
+  const recommendationKey = row ? `${row.id}:${row.version}` : "";
+  const currentRecommendation = recommendation?.key === recommendationKey ? recommendation.data : null;
+  async function createRecommendation() {
+    if (!row || recommendationBusyRef.current) return;
+    recommendationBusyRef.current = true;
+    setRecommendationBusy(true); setRecommendationError(""); setRecommendation(null); setApprovalOutcome(null);
+    const key = `${row.id}:${row.version}`;
+    try {
+      const result = await requestJson(`/request/${row.id}/purchase-recommendation`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: row.version }),
+      }) as PurchaseRecommendation;
+      setRecommendation({ key, data: result });
+    } catch (cause) {
+      setRecommendationError(cause instanceof Error ? cause.message : "Não foi possível gerar a recomendação.");
+    } finally {
+      recommendationBusyRef.current = false; setRecommendationBusy(false);
+    }
+  }
+  async function approveRecommendation(approved: boolean) {
+    if (!row || !currentRecommendation || approvalBusyRef.current) return;
+    approvalBusyRef.current = true; setApprovalBusy(true); setRecommendationError("");
+    try {
+      await requestJson(`/request/${row.id}/purchase-recommendation/approval`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_id: currentRecommendation.review_id, version: currentRecommendation.version, approved }),
+      });
+      setApprovalOutcome(approved);
+      decided();
+    } catch (cause) {
+      setRecommendationError(cause instanceof Error ? cause.message : "Não foi possível registrar sua resposta.");
+    } finally {
+      approvalBusyRef.current = false; setApprovalBusy(false);
+    }
+  }
   useEffect(() => {
     const element = dialog.current;
     if (!open) { element?.close(); return; }
@@ -126,6 +242,63 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Decisão de compra · Fornecedor ou Internet</h3>
               <p className="mt-1 text-xs text-slate-600">Escolha entre fechar com o fornecedor cotado no Telegram ou registrar preferência por uma oferta da internet.</p>
+            </div>
+            <div className="space-y-3 rounded-xl border border-violet-200 bg-white p-3.5">
+              <div>
+                <h4 className="text-xs font-semibold text-slate-900">Recomendação de compra com Jev</h4>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">A análise só começa quando você solicita. Ela compara os termos registrados do fornecedor com as ofertas de mercado disponíveis e mostra quais evidências e custos ainda precisam de confirmação.</p>
+              </div>
+              {!currentRecommendation && <button onClick={() => void createRecommendation()} disabled={recommendationBusy} className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50">{recommendationBusy ? "Analisando com Jev…" : "Automatizar recomendação com Jev"}</button>}
+              {recommendationBusy && <p role="status" className="text-[11px] text-slate-600">Aguarde a análise das ofertas para esta versão da solicitação.</p>}
+              {currentRecommendation && (() => {
+                const review = currentRecommendation;
+                const cheapestMarket = review.candidates.find(candidate => candidate.offer_id === review.best_market_offer_id);
+                const reliableMarket = review.candidates.find(candidate => candidate.offer_id === review.most_reliable_market_offer_id);
+                const comparatorMarket = review.candidates.find(candidate => candidate.offer_id === review.comparator_market_offer_id);
+                const selected = review.candidates.find(candidate => candidate.offer_id === review.selected_offer_id);
+                const supplier = review.candidates.find(candidate => candidate.offer_id === review.supplier_offer_id)
+                  || (review.recommendation === "supplier" ? review.candidates.find(candidate => candidate.offer_id === review.selected_offer_id) : undefined);
+                const evaluatedMarketCount = review.candidates.filter(candidate => candidate.channel === "market").length;
+                const comparisonLabel = review.comparison_basis === "complete_tco" ? "TCO" : "Subtotal dos produtos";
+                const actualSupplierLabel = review.comparison_basis === "complete_tco" ? "TCO real do fornecedor" : "Preço real dos produtos cotados";
+                const actualSupplierDisplay = review.actual_supplier_tco_cents != null
+                  ? brlCents(review.actual_supplier_tco_cents)
+                  : row.quote?.final_price != null
+                    ? `${brl(row.quote.final_price)} / un. × ${row.qty} = ${brl((Number(row.quote.final_price) * row.qty).toFixed(2))}`
+                    : "Total completo não informado";
+                const cheapestMarketCents = cheapestMarket?.comparison_amount_cents ?? review.best_market_tco_cents;
+                const reliableMarketCents = reliableMarket?.comparison_amount_cents ?? review.most_reliable_market_tco_cents;
+                const comparatorMarketCents = review.comparator_market_cents ?? comparatorMarket?.comparison_amount_cents ?? review.comparator_market_tco_cents;
+                return <div className="space-y-3" data-review-id={review.review_id}>
+                  <div className={`rounded-lg p-3 ${review.recommendation === "review" ? "border border-amber-200 bg-amber-50" : "border border-violet-100 bg-violet-50/70"}`}>
+                    <p className="text-xs font-semibold text-slate-900">{review.recommendation === "supplier" ? `Recomendação: fornecedor${supplier?.supplier ? ` · ${supplier.supplier}` : ""}` : review.recommendation === "market" ? `Recomendação: mercado${selected?.supplier ? ` · ${selected.supplier}` : ""}` : "Recomendação bloqueada · revisão necessária"}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-700">{recommendationReason(review)}</p>
+                    {review.recommendation !== "review" && selected && safeUrl(selected.source_url) && <a href={safeUrl(selected.source_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-blue-700">Ver oferta recomendada <ExternalLink size={11} /></a>}
+                  </div>
+                  <dl className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-2">
+                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">{actualSupplierLabel}{supplier?.supplier ? ` · ${supplier.supplier}` : ""}</dt><dd className="mt-1 font-semibold text-slate-900">{actualSupplierDisplay}</dd></div>
+                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Menor {comparisonLabel} de mercado · {cheapestMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(cheapestMarketCents)}</dd></div>
+                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Mercado mais confiável · {reliableMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(reliableMarketCents)}</dd></div>
+                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Comparador confiável · {comparatorMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(comparatorMarketCents)}</dd></div>
+                  </dl>
+                  <div className="rounded-lg border border-slate-200 p-3 text-[11px] text-slate-700">
+                    <p className="font-semibold">Cálculo da preferência pelo fornecedor</p>
+                    <p className="mt-1">{comparisonLabel} do fornecedor ({brlCents(review.comparison_supplier_cents)}) × {factor(review.supplier_preference_factor)} = {brlCents(review.adjusted_supplier_tco_cents)} ajustados, comparados ao mercado confiável ({brlCents(comparatorMarketCents)}).</p>
+                    <p className="mt-1 text-slate-500">O fator {factor(review.supplier_preference_factor)} é apenas um ajuste para recomendar. O preço real da cotação permanece {actualSupplierDisplay}; não altera a cotação nem autoriza cobrança.</p>
+                    {review.comparison_basis === "product_subtotal" && <p className="mt-2 rounded-md bg-amber-50 p-2 text-amber-900">Comparação dos preços dos produtos. Frete, taxas e demais pendências ainda precisam ser confirmados.</p>}
+                  </div>
+                  {!!review.pending_checks?.length && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-900">Pendente de confirmação: {review.pending_checks.map(pendingChecksLabel).join(", ")}.</p>}
+                  <div>
+                    <p className="text-[10px] text-slate-500">{evaluatedMarketCount} oferta(s) de mercado avaliadas · {review.candidates.filter(candidate => candidate.channel === "market" && candidate.comparable && candidate.reliable).length} comparável(is) e confiável(is).</p>
+                    {!!review.candidates.length && <ul className="mt-2 space-y-1.5">{review.candidates.map(candidate => <li key={candidate.offer_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md bg-slate-50 px-2.5 py-2 text-[10px]">
+                      <span className="font-medium text-slate-800">{candidate.supplier} · {candidate.channel === "market" ? "mercado" : candidate.channel === "whatsapp" ? "WhatsApp" : "fornecedor"}</span>
+                      <span className="text-slate-600">{comparisonLabel} {brlCents(review.comparison_basis === "complete_tco" ? candidate.tco_cents : candidate.comparison_amount_cents)} · equivalência {percentage(candidate.equivalence_probability)} · evidência {percentage(candidate.evidence_probability)} · {candidate.comparable ? "comparável" : "não comparável"} · {candidate.reliable ? "confiável" : "confiabilidade pendente"}</span>
+                    </li>)}</ul>}
+                  </div>
+                  {review.recommendation === "review" ? <p role="status" className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-900">Análise bloqueada: {recommendationReason(review)} Verifique os termos da cotação e as evidências do mercado antes de decidir.</p> : approvalOutcome !== null ? <p role="status" className="rounded-lg bg-emerald-50 p-2.5 text-[11px] font-medium text-emerald-900">{approvalOutcome ? "Recomendação aceita e registrada." : "Recomendação rejeitada e resposta registrada."} A compra simulada continua dependendo da ação separada “Quero comprar”.</p> : <div className="flex flex-wrap gap-2"><button onClick={() => void approveRecommendation(true)} disabled={approvalBusy} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{approvalBusy ? "Registrando…" : "Sim, aceitar recomendação"}</button><button onClick={() => void approveRecommendation(false)} disabled={approvalBusy} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Não, rejeitar recomendação</button></div>}
+                </div>;
+              })()}
+              {recommendationError && <p role="alert" className="text-xs text-rose-700">{recommendationError}</p>}
             </div>
             {row.quote && (
               <div className="space-y-3 rounded-xl border border-emerald-200 bg-white p-3.5">

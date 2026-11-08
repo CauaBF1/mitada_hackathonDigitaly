@@ -1,0 +1,1858 @@
+{
+  "authorized_request_limit": 10,
+  "requests": [
+    {
+      "timestamp": "2026-11-08T15:07:29.619270+00:00",
+      "request_number": 1,
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "requested_product": "Mouse Logitech M170 preto, novo",
+          "offer": {
+            "description": "Mouse Logitech M170 preto novo, SKU 910-004940, garantia 12 meses",
+            "unit_cents": 12000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "available_qty": 2,
+            "evidence": "Caso fictício: proposta escrita confirma modelo, condição nova, estoque de 2 unidades e custo de entrega incluído."
+          }
+        },
+        "questions": {
+          "same_product": {
+            "type": "noul",
+            "instructions": "A descrição da oferta corresponde ao produto solicitado?",
+            "criteria": {
+              "true": "Mesmo modelo, cor e condição nova.",
+              "false": "Modelo, cor ou condição diferente."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product": {
+            "type": "noul",
+            "noul": 0.98
+          }
+        },
+        "usage": {
+          "input_tokens": 438,
+          "output_tokens": 21
+        }
+      }
+    },
+    {
+      "request_number": 2,
+      "timestamp": "2026-11-08T15:12:44.699647+00:00",
+      "case": "supplier_within_preference",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.17
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.51
+          }
+        },
+        "usage": {
+          "input_tokens": 1087,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ]
+    },
+    {
+      "request_number": 3,
+      "timestamp": "2026-11-08T15:12:44.925054+00:00",
+      "case": "supplier_above_preference",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 13000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.16
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.53
+          }
+        },
+        "usage": {
+          "input_tokens": 1087,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 13000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 130.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 13000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ]
+    },
+    {
+      "request_number": 4,
+      "timestamp": "2026-11-08T15:12:45.205675+00:00",
+      "case": "different_product",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 8000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": false,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": false,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.28
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.07
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.71
+          }
+        },
+        "usage": {
+          "input_tokens": 1086,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 8000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Teclado USB genérico branco usado. Produto diferente do mouse solicitado.",
+          "product_confirmed": false,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 8000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ]
+    },
+    {
+      "request_number": 5,
+      "timestamp": "2026-11-08T15:12:45.446011+00:00",
+      "case": "missing_costs",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": null,
+              "fees_cents": null,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": false,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.24
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.44
+          }
+        },
+        "usage": {
+          "input_tokens": 1087,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": null,
+          "fees_cents": null,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": false,
+          "tco_cents": null
+        }
+      ]
+    },
+    {
+      "request_number": 6,
+      "timestamp": "2026-11-08T15:12:45.723965+00:00",
+      "case": "weak_market_evidence",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "example.com",
+              "listing_product_name": "Rumor sem modelo confirmado",
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": false,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": false,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "The supplied provenance and captured offer facts provide concrete support for the stated price and seller or source identity.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.33
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.06
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.06
+          }
+        },
+        "usage": {
+          "input_tokens": 1069,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas. Dados inteiramente fictícios para teste.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Rumor de preço sem modelo, sem estoque, sem página acessada. A origem não comprova oferta.",
+          "product_confirmed": false,
+          "destination_confirmed": true,
+          "source_url": "https://example.com/rumor",
+          "listing_product_name": "Rumor sem modelo confirmado",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ]
+    },
+    {
+      "request_number": 7,
+      "timestamp": "2026-11-08T15:13:48.711720+00:00",
+      "case": "supplier_within_preference_grounded",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.99
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.8
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.8
+          }
+        },
+        "usage": {
+          "input_tokens": 1277,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ],
+      "result_summary": {
+        "review_id": "f98ac5da-49bf-4141-bd00-153554003ca1",
+        "request_id": "synthetic-live-validation",
+        "version": 1,
+        "offer_hash": "139e22b9235ff83fa275c09d6654badbbf2e7f94493897182785005b4feb877f",
+        "recommendation": "supplier",
+        "reason": "supplier_adjusted_cost_at_or_below_reliable_market",
+        "supplier_preference_factor": 0.8,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 12000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 12000,
+        "actual_supplier_comparison_cents": 12000,
+        "adjusted_supplier_tco_cents": 9600,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": 10000,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": 10000,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": 10000,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "supplier",
+        "threshold_market_tco_cents": 10000,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor fictício",
+            "channel": "telegram",
+            "source_url": null,
+            "tco_cents": 12000,
+            "product_subtotal_cents": 12000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.99,
+            "evidence_probability": 0.8,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 12000,
+            "adjusted_tco_cents": 9600,
+            "adjusted_comparison_cents": 9600
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Loja fictícia",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.8,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "adjusted_tco_cents": null,
+            "adjusted_comparison_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T15:14:15.621Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 8,
+      "timestamp": "2026-11-08T15:13:48.976919+00:00",
+      "case": "supplier_above_preference_grounded",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 130.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 13000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.79
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.99
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.79
+          }
+        },
+        "usage": {
+          "input_tokens": 1277,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 13000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 130.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 13000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ],
+      "result_summary": {
+        "review_id": "b1972944-d9c4-4699-8c37-e4e1983864bc",
+        "request_id": "synthetic-live-validation",
+        "version": 1,
+        "offer_hash": "169ad2294f288e42521b8dc9259a5b66e718bd71d9ad106ae95f967bdb3667da",
+        "recommendation": "market",
+        "reason": "no_supplier_meets_preference_threshold_against_reliable_market",
+        "supplier_preference_factor": 0.8,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 13000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 13000,
+        "actual_supplier_comparison_cents": 13000,
+        "adjusted_supplier_tco_cents": 10400,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": 10000,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": 10000,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": 10000,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "market",
+        "threshold_market_tco_cents": 10000,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor fictício",
+            "channel": "telegram",
+            "source_url": null,
+            "tco_cents": 13000,
+            "product_subtotal_cents": 13000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.79,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 13000,
+            "adjusted_tco_cents": 10400,
+            "adjusted_comparison_cents": 10400
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Loja fictícia",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.99,
+            "evidence_probability": 0.79,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "adjusted_tco_cents": null,
+            "adjusted_comparison_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T15:14:15.622Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 9,
+      "timestamp": "2026-11-08T15:13:49.294363+00:00",
+      "case": "missing_costs_grounded",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": null,
+              "fees_cents": null,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": false,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.99
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.82
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.78
+          }
+        },
+        "usage": {
+          "input_tokens": 1277,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": null,
+          "fees_cents": null,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Trecho extraído do anúncio público da loja: preço R$ 100.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+          "listing_product_name": "Mouse Logitech M170 preto novo 910-004940",
+          "eligible": false,
+          "tco_cents": null
+        }
+      ],
+      "result_summary": {
+        "review_id": "a781c560-2b3a-4fac-b231-b568c4b3dca4",
+        "request_id": "synthetic-live-validation",
+        "version": 1,
+        "offer_hash": "d410c44cdf72ac8fcfbc25a12b90fb695f03fbcf8aec6a26ff4bb428bd18a4d5",
+        "recommendation": "supplier",
+        "reason": "supplier_adjusted_cost_at_or_below_reliable_market",
+        "supplier_preference_factor": 0.8,
+        "comparison_basis": "product_subtotal",
+        "comparison_supplier_cents": 12000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 12000,
+        "actual_supplier_comparison_cents": 12000,
+        "adjusted_supplier_tco_cents": 9600,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": null,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": null,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": null,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "supplier",
+        "threshold_market_tco_cents": null,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor fictício",
+            "channel": "telegram",
+            "source_url": null,
+            "tco_cents": 12000,
+            "product_subtotal_cents": 12000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.99,
+            "evidence_probability": 0.82,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 12000,
+            "adjusted_tco_cents": 9600,
+            "adjusted_comparison_cents": 9600
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Loja fictícia",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/dp/B074L9L5KZ",
+            "tco_cents": null,
+            "product_subtotal_cents": 10000,
+            "eligible": false,
+            "cost_complete": false,
+            "pending_checks": [
+              "shipping",
+              "fees"
+            ],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.78,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "adjusted_tco_cents": null,
+            "adjusted_comparison_cents": null
+          }
+        ],
+        "pending_checks": [
+          "shipping",
+          "fees"
+        ],
+        "explanation": null,
+        "created_at": "2026-11-08T15:14:15.622Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 10,
+      "timestamp": "2026-11-08T15:13:49.651874+00:00",
+      "case": "weak_market_evidence_grounded",
+      "synthetic_data": true,
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Mouse Logitech M170 preto novo",
+            "specifications": {
+              "model": "M170",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 12000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "example.com",
+              "listing_product_name": "Rumor sem modelo confirmado",
+              "captured_offer_excerpt": "Rumor de preço sem modelo, sem estoque, sem página acessada. A origem não comprova oferta.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Mouse Logitech M170 preto novo",
+              "requested_specifications": {
+                "model": "M170",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 2,
+              "product_confirmed": false,
+              "destination_confirmed": true,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": false,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.84
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.03
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.02
+          }
+        },
+        "usage": {
+          "input_tokens": 1221,
+          "output_tokens": 86
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor fictício",
+          "event_id": "telegram:supplier",
+          "supplier_chat_id": "fictional-private-chat",
+          "unit_cents": 12000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Mouse Logitech M170 preto novo, modelo 910-004940. Proposta escrita do fornecedor confirmada para o produto solicitado: preço R$ 120.00, disponível 2 unidades, frete incluído, sem taxas.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "listing_product_name": null,
+          "eligible": true,
+          "tco_cents": 12000
+        },
+        {
+          "id": "market",
+          "supplier": "Loja fictícia",
+          "event_id": "search:market",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 2,
+          "conditions": "Rumor de preço sem modelo, sem estoque, sem página acessada. A origem não comprova oferta.",
+          "product_confirmed": false,
+          "destination_confirmed": true,
+          "source_url": "https://example.com/rumor",
+          "listing_product_name": "Rumor sem modelo confirmado",
+          "eligible": true,
+          "tco_cents": 10000
+        }
+      ],
+      "result_summary": {
+        "review_id": "0277ed90-e702-4c48-816b-1d16cde9a7f0",
+        "request_id": "synthetic-live-validation",
+        "version": 1,
+        "offer_hash": "d4f816720cb626586e031712a8b2055305fd9a73b370a3946d8d4c0ba3165d54",
+        "recommendation": "review",
+        "reason": "no_reliable_comparable_market_offer",
+        "supplier_preference_factor": 0.8,
+        "comparison_basis": "product_subtotal",
+        "comparison_supplier_cents": 12000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 12000,
+        "actual_supplier_comparison_cents": 12000,
+        "adjusted_supplier_tco_cents": 9600,
+        "best_market_offer_id": null,
+        "best_market_tco_cents": null,
+        "best_market_comparison_cents": null,
+        "most_reliable_market_offer_id": null,
+        "most_reliable_market_tco_cents": null,
+        "comparator_market_offer_id": null,
+        "comparator_market_tco_cents": null,
+        "comparator_market_cents": null,
+        "selected_offer_id": null,
+        "threshold_market_tco_cents": null,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor fictício",
+            "channel": "telegram",
+            "source_url": null,
+            "tco_cents": 12000,
+            "product_subtotal_cents": 12000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.84,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 12000,
+            "adjusted_tco_cents": 9600,
+            "adjusted_comparison_cents": 9600
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Loja fictícia",
+            "channel": "market",
+            "source_url": "https://example.com/rumor",
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.03,
+            "evidence_probability": 0.02,
+            "comparable": false,
+            "reliable": false,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "adjusted_tco_cents": null,
+            "adjusted_comparison_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T15:14:15.622Z",
+        "approval": null
+      }
+    }
+  ]
+}
