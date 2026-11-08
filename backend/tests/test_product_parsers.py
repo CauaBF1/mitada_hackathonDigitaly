@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from app.config import settings
-from app.scraper_tools import MarketScraper, ProductOffer, ScrapingError, SearchCandidate, parse_product, product_links, same_product
+from app.scraper_tools import MarketScraper, ProductOffer, ScrapingError, SearchCandidate, parse_extracted_product, parse_product, product_links, same_product
 from test_real_market import product_html
 
 
@@ -129,3 +129,119 @@ def test_dns_resolution_is_bounded(monkeypatch):
         with pytest.raises(ScrapingError, match='resolver'):
             await scraper_tools.validate_public_url('https://example.com/product')
     asyncio.run(run())
+
+
+def test_tavily_extract_fallback_recovers_blocked_direct_fetch_with_validated_offer(monkeypatch):
+    from app import scraper_tools
+    from app.search_provider import TavilyExtraction
+    query = 'Televisão Hisense 43 polegadas 4K'
+    blocked_url = 'https://www.fastshop.com.br/web/p/d/smart-tv-hisense-43-4k-43a6k'
+    markdown = '''# Smart TV Hisense 43" 4K UHD 43A6K
+Vendido e entregue por Fast Shop
+De R$ 2.299,00
+Por R$ 1.799,00 à vista no Pix
+ou 10x de R$ 199,90 sem juros'''
+    async def allow_url(url):
+        return '93.184.216.34'
+    async def fake_tavily_extract(urls, *, query=None, extract_depth='basic', validate_url=None, **kwargs):
+        assert urls == [blocked_url]
+        return TavilyExtraction(results={blocked_url: markdown}, failed={}, extract_depth=extract_depth, credits_used=1, request_id='test-req')
+    monkeypatch.setattr(scraper_tools, 'validate_public_url', allow_url)
+    monkeypatch.setattr(scraper_tools, 'tavily_extract', fake_tavily_extract)
+    async def run():
+        async with MarketScraper() as scraper:
+            async def search(q):
+                return [blocked_url]
+            async def fetch(url):
+                raise ScrapingError('HTTP 403')
+            scraper.search, scraper.fetch = search, fetch
+            return await scraper.discover(query)
+    result = asyncio.run(run())
+    assert len(result.products) == 1
+    offer = result.products[0]
+    assert offer.product_url == blocked_url
+    assert offer.price == Decimal('1799.00')
+    assert offer.currency == 'BRL'
+    assert offer.extraction_method.startswith('tavily_extract/')
+    assert 'vista' in (offer.price_basis or '')
+    assert offer.shipping_fee is None
+    assert offer.additional_costs is None
+    assert offer.availability == "Unknown"
+    assert len(offer.evidence_sha256) == 64
+    assert result.tavily_extractions == 1
+    assert result.tavily_credits_used == 1
+    assert result.blocked_sites == 0
+
+
+def test_tavily_extract_rejects_installments_third_party_seller_wrong_variant_and_parts():
+    query = 'Televisão Hisense 43 polegadas 4K'
+    url = 'https://www.magazineluiza.com.br/smart-tv-hisense-43-4k/p/12345/'
+    # 1. Installment only without confirmed cash/total price
+    with pytest.raises(ScrapingError, match='parcelad'):
+        parse_extracted_product('# Smart TV Hisense 43" 4K UHD\nApenas 10x de R$ 189,90 sem juros', url, query)
+    # 2. Third-party marketplace seller on store domain
+    with pytest.raises(ScrapingError, match='terceiro'):
+        parse_extracted_product('# Smart TV Hisense 43" 4K UHD\nVendido por Mega Eletrônicos e entregue por Magalu\nPreço à vista R$ 1.799,00', url, query)
+    # 3. Wrong variant (50 inches instead of 43 inches)
+    with pytest.raises(ScrapingError, match='não corresponde'):
+        parse_extracted_product('# Smart TV Hisense 50" 4K UHD 50A6K\nVendido e entregue por Magalu\nPreço à vista R$ 2.199,00', url, query)
+    # 4. Replacement part / accessory
+    with pytest.raises(ScrapingError, match='não corresponde'):
+        parse_extracted_product('# Controle Remoto para Smart TV Hisense 43" 4K\nVendido e entregue por Magalu\nPreço à vista R$ 49,90', url, query)
+    assert not same_product(query, 'Placa Principal TV Hisense 43 Polegadas 4K 43A6K')
+    assert not same_product(query, 'Barra de LED TV Hisense 43 Polegadas 4K')
+
+
+def test_discover_differentiates_local_filters_robots_skips_and_remote_blocks_while_preserving_valid_offers():
+    valid_url = 'https://store.example/prod/mouse-m170'
+    robots_url = 'https://robots-blocked.example/prod/mouse-m170'
+    http_blocked_url = 'https://waf-blocked.example/prod/mouse-m170'
+    filtered_url = 'https://www.buscape.com.br/mouse-logitech-m170'
+    async def run():
+        async with MarketScraper() as scraper:
+            async def search(q):
+                return [filtered_url, valid_url, robots_url, http_blocked_url]
+            async def fetch(url):
+                if url == valid_url:
+                    return microdata(), url
+                if url == robots_url:
+                    raise ScrapingError('Bloqueado por robots.txt')
+                raise ScrapingError('HTTP 403')
+            async def extract_fallback(url, q):
+                return None
+            scraper.search, scraper.fetch, scraper.extract_fallback = search, fetch, extract_fallback
+            return await scraper.discover(NAME)
+    result = asyncio.run(run())
+    assert len(result.products) == 1
+    assert result.products[0].product_url == valid_url
+    assert result.filtered_domains == 1
+    assert result.policy_skipped_sites == 1
+    assert result.blocked_sites == 1
+    assert any('waf-blocked.example' in err for err in result.errors)
+
+
+
+@pytest.mark.parametrize('seller', ['Magalu Outlet Terceiro', 'Loja parceira Magalu', 'MagaluExpress'])
+def test_extracted_seller_requires_exact_store_identity(seller):
+    with pytest.raises(ScrapingError, match='terceiro'):
+        parse_extracted_product(f'# Smart TV Hisense 43" 4K UHD\nVendido por {seller}\nPor R$ 1.799,00 à vista',
+            'https://www.magazineluiza.com.br/tv/p/12345/', 'TV Hisense 43 4K')
+
+
+def test_extract_budget_is_reserved_before_concurrent_calls(monkeypatch):
+    from app import scraper_tools
+    from app.search_provider import TavilyExtraction
+    calls = []
+    async def fake_extract(urls, **kwargs):
+        calls.append(urls)
+        await asyncio.sleep(0.01)
+        return TavilyExtraction(credits_used=1)
+    monkeypatch.setattr(scraper_tools, 'tavily_extract', fake_extract)
+    monkeypatch.setattr(settings, 'tavily_extract_max_credits_per_task', 1)
+    monkeypatch.setattr(settings, 'tavily_extract_max_retries', 2)
+    async def run():
+        async with MarketScraper() as scraper:
+            return await asyncio.gather(*(scraper.bounded_extract(f'https://store.example/p/{i}', 'basic') for i in range(3)), return_exceptions=True)
+    results = asyncio.run(run())
+    assert len(calls) == 1
+    assert sum(isinstance(r, ScrapingError) for r in results) == 2

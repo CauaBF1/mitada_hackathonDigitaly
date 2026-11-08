@@ -19,7 +19,7 @@ def test_gemini_structured_provider_adapter_is_mocked(monkeypatch):
             created.update(kwargs)
         def with_structured_output(self, schema, method):
             assert schema is agent_intelligence.MemoryProfile
-            assert method == 'function_calling'
+            assert method == 'json_schema'
             return self
         async def ainvoke(self, messages):
             return {'has_previous_history': False, 'historical_discount_avg_pct': None,

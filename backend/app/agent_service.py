@@ -3,6 +3,7 @@ import asyncio
 import hmac
 import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -15,13 +16,14 @@ from typing import Any, TypedDict
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .agent_intelligence import ConversationTerms, conversation_intelligence, discovery_intelligence, memory_intelligence, negotiator_intelligence, parse_quote_intelligence
 from .config import settings
+from . import search_provider
 from .scraper_tools import MarketScraper, Reputation, discover_market
 from .routers.voice_webhook import router as voice_router
 
@@ -394,6 +396,23 @@ async def health():
     return {"status": "ok", "service": "internal-agents"}
 
 
+@app.get("/integrations/search", response_model=search_provider.SearchConnection)
+async def search_integration_status(authorization: str | None = Header(default=None)):
+    require_internal_token(authorization)
+    return await search_provider.status()
+
+
+@app.post("/integrations/search", response_model=search_provider.SearchConnection)
+async def connect_search_integration(
+    payload: search_provider.ConnectSearch,
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_nexo_settings: str | None = Header(default=None),
+):
+    require_internal_token(authorization)
+    return await search_provider.connect(payload, request, x_nexo_settings)
+
+
 class QuoteInterpretRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str = Field(min_length=1, max_length=100)
@@ -410,6 +429,17 @@ def require_internal_token(authorization: str | None):
         raise HTTPException(401, "Internal API authentication required")
 
 
+logger = logging.getLogger("nexo.agent_service")
+
+
+def _sanitize_diag(exc: Exception) -> str:
+    raw = f"{type(exc).__name__}: {exc}"
+    raw = re.sub(r"(?:tvly-|gsk_|AIza)[A-Za-z0-9_\-]+", "[REDACTED]", raw)
+    raw = re.sub(r"bot[0-9]+:[A-Za-z0-9_\-]+", "bot[REDACTED]", raw)
+    raw = re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer [REDACTED]", raw, flags=re.I)
+    return raw[:300]
+
+
 @app.post("/interpret-quote")
 async def interpret_quote(payload: QuoteInterpretRequest, authorization: str | None = Header(default=None)):
     require_internal_token(authorization)
@@ -417,11 +447,15 @@ async def interpret_quote(payload: QuoteInterpretRequest, authorization: str | N
         raise HTTPException(503, "Interpretação natural indisponível: GEMINI_API_KEY ou GROQ_API_KEY não configurada")
     try:
         state = {"request_id": payload.request_id, "product": payload.product, "qty": payload.qty, "destination": payload.destination, "quote_text": payload.text}
-        result = await app.state.quote_graph.ainvoke(state, {"configurable": {"thread_id": f"quote-{payload.request_id}-{abs(hash(payload.text))}"}})
+        result = await asyncio.wait_for(
+            app.state.quote_graph.ainvoke(state, {"configurable": {"thread_id": f"quote-{payload.request_id}-{abs(hash(payload.text))}"}}),
+            timeout=settings.llm_timeout_seconds,
+        )
         return result["parsed_quote"]
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
+        logger.warning("interpret_quote failed for request_id=%s: %s", payload.request_id, _sanitize_diag(exc))
         raise HTTPException(503, f"Interpretação indisponível: {type(exc).__name__}") from exc
 
 
@@ -457,18 +491,26 @@ async def conversation_turn(payload: ConversationTurnRequest, authorization: str
     require_internal_token(authorization)
     if not settings.active_llm_api_key:
         return {"intent": "pending", "reply": "Sua mensagem foi recebida e está com processamento pendente.", "terms": payload.terms,
-                "explicit_confirmation": False, "terms_changed": False, "purchase_acceptance": "unclear"}
+                "explicit_confirmation": False, "terms_changed": False, "purchase_acceptance": "unclear",
+                "error_code": "llm_unconfigured"}
     try:
-        result = await app.state.conversation_graph.ainvoke(payload.model_dump())
+        result = await asyncio.wait_for(
+            app.state.conversation_graph.ainvoke(payload.model_dump()),
+            timeout=settings.llm_timeout_seconds,
+        )
         return result["result"]
-    except Exception:
+    except Exception as exc:
+        logger.warning("conversation_turn failed (phase=%s): %s", payload.phase, _sanitize_diag(exc))
         return {"intent": "pending", "reply": "Sua mensagem foi recebida e está com processamento pendente.", "terms": payload.terms,
-                "explicit_confirmation": False, "terms_changed": False, "purchase_acceptance": "unclear"}
+                "explicit_confirmation": False, "terms_changed": False, "purchase_acceptance": "unclear",
+                "error_code": type(exc).__name__, "error_detail": _sanitize_diag(exc)}
 
 
 _reputation_cache: dict[str, tuple[float, dict, list[dict]]] = {}
 REPUTATION_REFRESH_TOTAL_BUDGET_SECONDS = 25
 REPUTATION_REFRESH_MAX_DOMAINS = 3
+REPUTATION_CACHE_VERIFIED_TTL_SECONDS = 86400
+REPUTATION_CACHE_TRANSIENT_TTL_SECONDS = 120
 
 
 class ReputationRefreshRequest(BaseModel):
@@ -505,10 +547,14 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
                 "checked_at": checked, "status": "skipped_limit"})
             continue
         cached = _reputation_cache.get(host)
-        if cached and now_mono - cached[0] < 86400:
-            reputations.append(cached[1])
-            indications.extend(cached[2])
-            continue
+        if cached:
+            cached_ts, cached_official, cached_indications = cached
+            is_transient = not cached_official.get("verified") and cached_official.get("status") in {"timeout", "skipped_timeout", "unavailable", "blocked"}
+            ttl = REPUTATION_CACHE_TRANSIENT_TTL_SECONDS if is_transient else REPUTATION_CACHE_VERIFIED_TTL_SECONDS
+            if now_mono - cached_ts < ttl:
+                reputations.append(cached_official)
+                indications.extend(cached_indications)
+                continue
 
         remaining = deadline - time.monotonic()
         official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
@@ -523,12 +569,16 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
                     evidence_sha256=hashlib.sha256(url.encode()).hexdigest())
                 async with MarketScraper() as scraper:
                     official = (await asyncio.wait_for(scraper.reputation(product), timeout=min(8, remaining))).model_dump(mode="json")
+                    official.setdefault("status", "verified" if official.get("verified") else "unverified")
             except TimeoutError:
                 official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
                     "reason": "Consulta oficial excedeu seu prazo; reputação desconhecida.", "status": "timeout"}
-            except Exception:
+            except Exception as exc:
+                logger.warning("reputation_refresh official failed for %s: %s", host, _sanitize_diag(exc))
+                err_low = str(exc).lower()
+                status_code = "blocked" if any(t in err_low for t in ("403", "429", "bloquead", "antibot")) else "unavailable"
                 official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
-                    "reason": "Reputação oficial indisponível; desconhecida.", "status": "unavailable"}
+                    "reason": "Reputação oficial indisponível; desconhecida.", "status": status_code}
 
         remaining = deadline - time.monotonic()
         if remaining > 0:
@@ -541,13 +591,15 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
             except TimeoutError:
                 indicative.append({"supplier_domain": host, "timestamp": checked, "verified": False, "type": "reputation_indication",
                     "status": "timeout", "reason": "Busca Tavily excedeu o tempo restante; nenhum indício coletado."})
-            except Exception:
+            except Exception as exc:
+                logger.warning("reputation_refresh indicative search failed for %s: %s", host, _sanitize_diag(exc))
                 indicative = []
         else:
             indicative.append({"supplier_domain": host, "timestamp": checked, "verified": False, "type": "reputation_indication",
                 "status": "skipped_timeout", "reason": "Busca não realizada: orçamento total de tempo esgotado."})
 
-        _reputation_cache[host] = (now_mono, official, indicative)
+        if official.get("status") != "skipped_timeout":
+            _reputation_cache[host] = (now_mono, official, indicative)
         reputations.append(official)
         indications.extend(indicative)
     return {"reputations": reputations, "reputation_indications": indications, "checked_at": checked}

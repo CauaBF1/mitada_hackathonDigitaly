@@ -1,10 +1,84 @@
 import pytest
 import asyncio
+import httpx
 from pydantic import ValidationError
 from decimal import Decimal
 from types import SimpleNamespace
 
 from app import agent_service
+
+_ORIGINAL_HTTPX_CLIENT = httpx.AsyncClient
+
+
+def _internal_api_request(method, path, *, headers=None, json_body=None):
+    async def send():
+        async with _ORIGINAL_HTTPX_CLIENT(transport=httpx.ASGITransport(app=agent_service.app), base_url="http://test") as client:
+            return await client.request(method, path, headers=headers, json=json_body)
+    return asyncio.run(send())
+
+
+def test_search_integration_requires_internal_token_for_get_and_post(monkeypatch):
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
+    get_response = _internal_api_request("GET", "/integrations/search")
+    post_response = _internal_api_request(
+        "POST", "/integrations/search", json_body={"api_key": "tvly-test-credential"},
+    )
+    assert get_response.status_code == 401
+    assert post_response.status_code == 401
+
+
+def test_search_integration_get_returns_provider_status_with_token(monkeypatch):
+    from app import search_provider
+
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
+    async def fake_status():
+        return search_provider.SearchConnection(configured=False, active_provider="public", message="Busca pública")
+    monkeypatch.setattr(search_provider, "status", fake_status)
+    response = _internal_api_request(
+        "GET", "/integrations/search", headers={"Authorization": "Bearer test-internal-token"},
+    )
+    assert response.status_code == 200
+    assert response.json()["active_provider"] == "public"
+    assert "api_key" not in response.json()
+
+
+def test_search_integration_post_preserves_origin_checks_and_never_returns_credential(monkeypatch):
+    import httpx
+    from app import search_provider
+
+    monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
+    monkeypatch.setattr(search_provider.settings, "cors_origins", "https://local.test")
+    headers = {"Authorization": "Bearer test-internal-token", "Origin": "https://local.test", "X-Nexo-Settings": "1"}
+    body = {"api_key": "tvly-test-credential"}
+
+    bad_origin = _internal_api_request("POST", "/integrations/search", headers={**headers, "Origin": "https://other.test"}, json_body=body)
+    bad_settings = _internal_api_request("POST", "/integrations/search", headers={**headers, "X-Nexo-Settings": "0"}, json_body=body)
+
+    tavily_calls = []
+    def tavily_response(request):
+        tavily_calls.append(request.url.path)
+        return httpx.Response(200, json={
+            "key": {"usage": 1, "limit": 1000},
+            "account": {"current_plan": "free", "plan_usage": 1, "plan_limit": 1000,
+                        "paygo_usage": 0, "paygo_limit": 0},
+        })
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(search_provider.httpx, "AsyncClient", lambda **kwargs: real_client(transport=httpx.MockTransport(tavily_response), **kwargs))
+    monkeypatch.setattr(search_provider, "save_key", lambda key: None)
+    async def fake_run_in_threadpool(function, *args):
+        return function(*args)
+    monkeypatch.setattr(search_provider, "run_in_threadpool", fake_run_in_threadpool)
+    valid = _internal_api_request("POST", "/integrations/search", headers=headers, json_body=body)
+    invalid_credential = _internal_api_request("POST", "/integrations/search", headers=headers, json_body={"api_key": "not-a-tavily-key"})
+
+    assert bad_origin.status_code == 403
+    assert bad_settings.status_code == 403
+    assert valid.status_code == 200
+    assert valid.json()["active_provider"] == "tavily"
+    assert "api_key" not in valid.json()
+    assert "tvly-test-credential" not in valid.text
+    assert tavily_calls == ["/usage"]
+    assert invalid_credential.status_code == 422
 
 
 def test_internal_task_contract_rejects_bad_quantity_and_unknown_fields():
@@ -265,3 +339,110 @@ class DiscoveryMock:
 
 async def _async_result(value):
     return value
+
+
+def test_conversation_turn_accepts_null_terms_on_greeting_or_clarification():
+    from app.agent_intelligence import ConversationTurn
+    turn = ConversationTurn.model_validate({
+        "intent": "greeting",
+        "reply": "Olá! Para concluir a cotação da TV Hisense, você pode informar taxas adicionais, prazo e estoque?",
+        "terms": None,
+        "explicit_confirmation": False,
+        "terms_changed": False,
+        "purchase_acceptance": "unclear",
+    })
+    assert turn.intent == "greeting"
+    assert turn.terms.unit_cents is None
+
+
+def test_conversation_turn_and_interpret_quote_return_bounded_timeout_diagnostic(monkeypatch):
+    monkeypatch.setattr(agent_service, "require_internal_token", lambda token: None)
+    monkeypatch.setattr(agent_service.settings, "gemini_api_key", "mock-key")
+    monkeypatch.setattr(agent_service.settings, "llm_timeout_seconds", 0.05)
+    class StalledGraph:
+        async def ainvoke(self, state):
+            await asyncio.sleep(1.0)
+            return {"result": {}}
+    monkeypatch.setattr(agent_service.app.state, "conversation_graph", StalledGraph(), raising=False)
+    turn_req = agent_service.ConversationTurnRequest(
+        product="Televisão Hisense 43 polegadas 4K", qty=1, destination="13565-090",
+        message="A tv está custando 1875 com 67 de frete", phase="quotation", history=[],
+    )
+    turn_res = asyncio.run(agent_service.conversation_turn(turn_req, "valid-token"))
+    assert turn_res["intent"] == "pending"
+    assert turn_res["error_code"] == "TimeoutError"
+    assert "TimeoutError" in turn_res["error_detail"]
+
+
+def test_reputation_cache_uses_short_ttl_for_transient_failures_and_long_ttl_for_verified(monkeypatch):
+    from app import scraper_tools, search_provider
+    clock = [1000.0]
+    calls = {"count": 0}
+    monkeypatch.setattr(agent_service.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(agent_service, "require_internal_token", lambda token: None)
+    async def empty_search(query):
+        return []
+    monkeypatch.setattr(search_provider, "tavily_results", empty_search)
+    class Scraper:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def reputation(self, offer):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise scraper_tools.ReputationError("HTTP 403", status="blocked")
+            return scraper_tools.Reputation(
+                supplier_domain=offer.supplier_domain, company_name="Loja",
+                url="https://www.reclameaqui.com.br/empresa/loja/", score=Decimal("8.5"),
+                scale=10, label="Ótimo", classification="Ótimo", period="Últimos 6 meses",
+                source="reclameaqui.com.br", extraction_method="tavily_extract/basic", status="verified",
+                checked_at="2026-01-01T00:00:00Z", verified=True, approved=True,
+                reason="Reputação verificada ≥ 6,0.", evidence_sha256="c" * 64,
+            )
+    monkeypatch.setattr(scraper_tools, "MarketScraper", Scraper)
+    agent_service._reputation_cache.clear()
+    payload = agent_service.ReputationRefreshRequest(offers=[{"source_url": "https://loja.com.br/item"}])
+    first = asyncio.run(agent_service.reputation_refresh(payload, None))
+    assert first["reputations"][0]["verified"] is False
+    assert first["reputations"][0]["status"] == "blocked"
+    assert calls["count"] == 1
+    # Advance past transient TTL (120s) but well before verified TTL (86400s)
+    clock[0] += agent_service.REPUTATION_CACHE_TRANSIENT_TTL_SECONDS + 5
+    second = asyncio.run(agent_service.reputation_refresh(payload, None))
+    assert second["reputations"][0]["verified"] is True
+    assert second["reputations"][0]["score"] == "8.5"
+    assert calls["count"] == 2
+    # Advance 3600s — verified entry must still be served from cache
+    clock[0] += 3600
+    third = asyncio.run(agent_service.reputation_refresh(payload, None))
+    assert third["reputations"][0]["verified"] is True
+    assert calls["count"] == 2
+
+
+def test_parse_node_preserves_unknown_commercial_fields_as_null():
+    state = {
+        "task_id": "task-123",
+        "destination": "13565-090",
+        "raw_quotes": [{
+            "event_id": "task-123:" + "d" * 64,
+            "supplier": "Fast Shop",
+            "unit_price": "1799.00",
+            "shipping": None,
+            "fees": None,
+            "lead_days": None,
+            "available_qty": None,
+            "source_url": "https://www.fastshop.com.br/web/p/d/hisense-43",
+            "product_confirmed": False,
+            "destination_confirmed": False,
+            "conditions": "Smart TV Hisense 43 4K | evidência " + "d" * 64,
+        }],
+        "reputations": [],
+    }
+    parsed = asyncio.run(agent_service.parse_node(state))["quotes"]
+    assert len(parsed) == 1
+    quote = parsed[0]
+    assert quote["unit_cents"] == 179900
+    assert quote["shipping_cents"] is None
+    assert quote["fees_cents"] is None
+    assert quote["lead_days"] is None
+    assert quote["available_qty"] is None
+    assert quote["destination_confirmed"] is False

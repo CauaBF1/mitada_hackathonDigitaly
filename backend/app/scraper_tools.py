@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .commercial import AdditionalCost
-from .search_provider import SearchProviderError, tavily_results, tavily_search
-from .product_parsers import html_product_nodes
+from .search_provider import SearchProviderError, tavily_extract, tavily_results, tavily_search
+from .product_parsers import extracted_product_nodes, html_product_nodes
 
 
 extract_domain = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
@@ -32,6 +32,12 @@ def timestamp() -> str:
 
 class ScrapingError(Exception):
     pass
+
+
+class ReputationError(ScrapingError):
+    def __init__(self, message: str, status: str = "unverified"):
+        super().__init__(message)
+        self.status = status
 
 
 class ProductOffer(BaseModel):
@@ -58,9 +64,14 @@ class Reputation(BaseModel):
     company_name: str | None = None
     url: str | None = None
     score: Decimal | None = Field(default=None, ge=0, le=10)
+    scale: int = 10
     label: str = "Não verificada"
+    classification: str | None = None
     period: str | None = None
+    source: str = "reclameaqui.com.br"
     checked_at: str
+    extraction_method: str | None = None
+    status: str = "unverified"
     verified: bool = False
     approved: bool = False
     reason: str
@@ -85,6 +96,10 @@ def equivalent_product(left: str, right: str) -> bool:
 class Discovery(BaseModel):
     candidates: list[SearchCandidate] = Field(default_factory=list)
     blocked_sites: int = 0
+    filtered_domains: int = 0
+    policy_skipped_sites: int = 0
+    tavily_extractions: int = 0
+    tavily_credits_used: int = 0
     products: list[ProductOffer] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     searched_at: str
@@ -159,6 +174,10 @@ def same_product(query: str, title: str) -> bool:
         return False
     accessories = {"capa", "suporte", "pelicula", "case", "adaptador", "carregador", "usado", "recondicionado"}
     if (found & accessories) - terms:
+        return False
+    norm_title = normalize(title)
+    part_prefixes = ("controle ", "controle remoto", "placa ", "barra de led", "kit barra", "fonte ", "cabo ", "base ", "pezinho ", "pe para ", "tela ", "display ", "manual ")
+    if norm_title.startswith(part_prefixes) and not any(norm_title.startswith(t + " ") for t in terms):
         return False
     bundles = {'combo', 'combos', 'kit', 'conjunto'}
     if found & bundles and not (terms & bundles or {'teclado', 'mouse'} <= terms):
@@ -331,6 +350,64 @@ def parse_product(html: str, url: str, query: str) -> ProductOffer:
     raise ScrapingError("Página sem produto correspondente e preço BRL inequívoco em dados estruturados, ou oferta indisponível.")
 
 
+def parse_extracted_product(content: str, url: str, query: str, extract_depth: str = "basic") -> ProductOffer:
+    final_url = canonical_url(url)
+    supplier_dom = domain(final_url)
+    if not supplier_dom:
+        raise ScrapingError("Domínio de fornecedor inválido na extração.")
+    if product_url_rank(final_url)[0] == 2:
+        raise ScrapingError("URL de categoria ou busca não pode ser convertida em oferta de produto.")
+    try:
+        found = parse_product(content, final_url, query)
+        method = found.extraction_method if found.extraction_method.startswith("tavily_extract/") else f"tavily_extract/{extract_depth}+{found.extraction_method}"
+        evidence = json.dumps({"product": found.product_name, "price": str(found.price), "supplier": found.supplier_name, "url": found.product_url, "method": method, "content_sha256": hashlib.sha256(content.encode()).hexdigest()}, ensure_ascii=False, sort_keys=True)
+        return found.model_copy(update={"extraction_method": method, "evidence_sha256": hashlib.sha256(evidence.encode()).hexdigest()})
+    except ScrapingError:
+        pass
+
+    nodes, err_reason = extracted_product_nodes(content, final_url, extract_depth=extract_depth)
+    if err_reason:
+        raise ScrapingError(err_reason)
+    for node in nodes:
+        if not isinstance(node.get("name"), str) or not same_product(query, node["name"]):
+            continue
+        offer = node.get("offers") or {}
+        if not isinstance(offer, dict) or offer.get("priceCurrency") != "BRL":
+            continue
+        price = parse_price(offer.get("price"))
+        supplier = supplier_dom
+        method = node.get("_extraction_method", f"tavily_extract/{extract_depth}")
+        evidence = json.dumps(
+            {
+                "product": node["name"],
+                "offer": offer,
+                "supplier": supplier,
+                "url": final_url,
+                "method": method,
+                "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return ProductOffer(
+            supplier_name=supplier,
+            supplier_domain=supplier_dom,
+            supplier_website=f"{urlsplit(final_url).scheme}://{urlsplit(final_url).netloc}",
+            product_name=node["name"],
+            product_url=final_url,
+            price=price,
+            shipping_fee=None,
+            shipping_scope=None,
+            gtin=None,
+            availability=str(offer.get("availability") or "InStock"),
+            observed_at=timestamp(),
+            price_basis=node.get("_price_basis", "Preço anunciado extraído da página do produto; frete, prazo e estoque sujeitos à confirmação."),
+            extraction_method=method,
+            evidence_sha256=hashlib.sha256(evidence.encode()).hexdigest(),
+        )
+    raise ScrapingError("Conteúdo extraído não corresponde ao produto/variante solicitado ou não possui preço BRL válido.")
+
+
 def search_result_url(href: str, base: str) -> str | None:
     url = urljoin(base, href)
     parts = urlsplit(url)
@@ -426,6 +503,11 @@ class MarketScraper:
     def __init__(self):
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(settings.scrape_timeout_seconds), follow_redirects=False, limits=httpx.Limits(max_connections=6), headers={"User-Agent": "Mozilla/5.0 (compatible; NexoProcurement/1.0; market-research)", "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.5"})
         self.semaphore = asyncio.Semaphore(4)
+        self.extract_semaphore = asyncio.Semaphore(settings.tavily_extract_concurrency)
+        self.extract_budget_lock = asyncio.Lock()
+        self.extract_credits_reserved = 0
+        self.extract_urls_used = 0
+        self.extract_credits_used = 0
         self.on_progress = None
         self.search_candidates = {}
 
@@ -502,6 +584,59 @@ class MarketScraper:
             raise ScrapingError("Buscadores indisponíveis ou bloqueados. Nenhum resultado foi inventado. Configure um provedor de busca ou tente novamente mais tarde.")
         return urls[:40]
 
+    async def bounded_extract(self, url: str, depth: str):
+        # Reserve before awaiting: concurrent candidates and failed/uncertain
+        # requests must also count toward the task's maximum possible spend.
+        reserve = 2 if depth == "advanced" else 1
+        async with self.extract_budget_lock:
+            if (self.extract_urls_used >= settings.tavily_extract_max_urls_per_task
+                    or self.extract_credits_reserved + reserve > settings.tavily_extract_max_credits_per_task):
+                raise ScrapingError("Limite de extrações/créditos Tavily por tarefa atingido.")
+            self.extract_urls_used += 1
+            self.extract_credits_reserved += reserve
+        extraction = await tavily_extract([url], extract_depth=depth, validate_url=validate_public_url)
+        if extraction is not None:
+            self.extract_credits_used += extraction.credits_used
+        return extraction
+
+    async def extract_fallback(self, url: str, item: str) -> ProductOffer | None:
+        current = canonical_url(url)
+        if product_url_rank(current)[0] == 2:
+            return None
+        async with self.extract_semaphore:
+            if (
+                self.extract_urls_used >= settings.tavily_extract_max_urls_per_task
+                or self.extract_credits_used >= settings.tavily_extract_max_credits_per_task
+            ):
+                raise ScrapingError("Limite de extrações Tavily por tarefa atingido.")
+            await validate_public_url(current)
+            try:
+                extraction = await self.bounded_extract(current, "basic")
+            except SearchProviderError as exc:
+                raise ScrapingError(str(exc)) from None
+            if extraction is None:
+                return None
+            content = extraction.results.get(current)
+            last_error: str | None = extraction.failed.get(current)
+            if content:
+                try:
+                    return parse_extracted_product(content, current, item, extract_depth="basic")
+                except (ScrapingError, ValueError, InvalidOperation) as exc:
+                    last_error = str(exc)
+                    if any(term in last_error.lower() for term in ("indispon", "sem estoque", "terceiro", "parcelad", "não corresponde")):
+                        raise ScrapingError(last_error) from None
+            if self.extract_credits_reserved + 2 <= settings.tavily_extract_max_credits_per_task:
+                try:
+                    extraction_adv = await self.bounded_extract(current, "advanced")
+                except SearchProviderError as exc:
+                    raise ScrapingError(str(exc)) from None
+                if extraction_adv is not None:
+                    content_adv = extraction_adv.results.get(current)
+                    if content_adv:
+                        return parse_extracted_product(content_adv, current, item, extract_depth="advanced")
+                    last_error = extraction_adv.failed.get(current) or last_error
+            raise ScrapingError(last_error or "Tavily Extract não retornou conteúdo utilizável para esta URL.")
+
     async def discover(self, item: str) -> Discovery:
         result = Discovery(query=item, searched_at=timestamp())
         deadline = asyncio.get_running_loop().time() + settings.discovery_timeout_seconds
@@ -523,13 +658,38 @@ class MarketScraper:
             "canaltech.com.br", "uol.com.br", "globo.com", "olhardigital.com.br", "adrenaline.com.br",
             "promobit.com.br", "pelando.com.br", "reclameaqui.com.br", "tavily.com", "buscape.com.br", "zoom.com.br",
         }
-        urls = [url for url in sorted(dict.fromkeys(urls), key=product_url_rank) if domain(url) not in non_merchant_domains][:60]
+        deduped_urls = sorted(dict.fromkeys(urls), key=product_url_rank)
+        result.filtered_domains = sum(1 for url in deduped_urls if domain(url) in non_merchant_domains)
+        urls = [url for url in deduped_urls if domain(url) not in non_merchant_domains][:60]
         result.candidates = [self.search_candidates.get(url, SearchCandidate(url=url, title=url)) for url in urls]
         if self.on_progress:
             await self.on_progress(result)
+
+        def _eligible_for_extract_fallback(err_text: str, url: str) -> bool:
+            low = err_text.lower()
+            if "robots.txt" in low or "intervalo exigido pelo site" in low:
+                return False
+            if "endereços locais e privados" in low or "url de origem inválida" in low or "porta de origem" in low or "resolver o domínio" in low:
+                return False
+            return product_url_rank(url)[0] <= 1
+
         async def product(url):
             try:
-                html, final = await self.fetch(url)
+                try:
+                    html, final = await self.fetch(url)
+                except (ScrapingError, TimeoutError) as fetch_exc:
+                    err_text = str(fetch_exc) or "Tempo limite de acesso à página."
+                    if "robots.txt" in err_text.lower() or "intervalo exigido pelo site" in err_text.lower():
+                        result.policy_skipped_sites += 1
+                        raise
+                    if _eligible_for_extract_fallback(err_text, url):
+                        try:
+                            extracted_offer = await self.extract_fallback(url, item)
+                            if extracted_offer is not None:
+                                return extracted_offer
+                        except ScrapingError as fallback_exc:
+                            raise ScrapingError(f"{err_text} | Extração alternativa: {fallback_exc}") from None
+                    raise
                 try:
                     found = parse_product(html, final, item)
                     if urlsplit(found.product_url).path != urlsplit(final).path:
@@ -549,7 +709,14 @@ class MarketScraper:
                         except (ScrapingError, TimeoutError) as exc:
                             failures.append(str(exc) or 'Tempo limite ao acessar produto.')
                             continue
-                    raise ScrapingError(str(original) + (f' {len(links[:4])} links de produto verificados: {failures[-1]}' if failures else ' Nenhum link de produto acessível nesta página.'))
+                    if not links and product_url_rank(final)[0] == 0:
+                        try:
+                            extracted_offer = await self.extract_fallback(final, item)
+                            if extracted_offer is not None:
+                                return extracted_offer
+                        except ScrapingError as fallback_exc:
+                            failures.append(f"Extração alternativa: {fallback_exc}")
+                    raise ScrapingError(str(original) + (f' {len(links[:4]) or 1} tentativas complementares: {failures[-1]}' if failures else ' Nenhum link de produto acessível nesta página.'))
             except (ScrapingError, ValueError, InvalidOperation, TimeoutError) as exc:
                 return f"{urlsplit(url).hostname}: {exc or 'Tempo limite de acesso à página.'}"
 
@@ -591,14 +758,20 @@ class MarketScraper:
         if len(result.products) < 3 and deadline - asyncio.get_running_loop().time() > 15:
             try:
                 extra = await asyncio.wait_for(self.search(f'{item} "R$" "comprar" -suporte -manual'), min(25, deadline - asyncio.get_running_loop().time()))
-                extra = [url for url in extra if url not in candidates][:20]
+                extra = [url for url in extra if url not in candidates and domain(url) not in non_merchant_domains][:20]
                 for url in extra:
                     candidates[url] = self.search_candidates.get(url, SearchCandidate(url=url, title=url))
                 await collect(sorted(extra, key=product_url_rank))
             except (ScrapingError, TimeoutError) as exc:
                 result.errors.append(str(exc) or 'Busca adicional excedeu o prazo.')
         result.candidates = list(candidates.values())[:60]
-        result.blocked_sites = sum('bloquead' in error.lower() or 'verificação humana' in error for error in result.errors)
+        result.tavily_extractions = self.extract_urls_used
+        result.tavily_credits_used = self.extract_credits_used
+        result.blocked_sites = sum(
+            any(term in str(error).lower() for term in ('bloquead', 'verificação humana', 'http 403', 'http 429', 'antibot'))
+            and 'robots.txt' not in str(error).lower()
+            for error in result.errors
+        )
         result.errors = result.errors[:40]
         return result
 
@@ -638,63 +811,222 @@ class MarketScraper:
             rows[0] = candidate.model_copy(update={'error': 'Não foi possível identificar um produto nesta página. Abra o link ou escolha outro resultado.'})
         return rows
 
+    async def extract_reputation_fallback(self, url: str, supplier: ProductOffer) -> Reputation | None:
+        current = canonical_url(url)
+        await validate_public_url(current)
+        async with self.extract_semaphore:
+            if (
+                self.extract_urls_used >= settings.tavily_extract_max_urls_per_task
+                or self.extract_credits_used >= settings.tavily_extract_max_credits_per_task
+            ):
+                raise ReputationError("Limite de extrações Tavily por tarefa atingido na consulta ao ReclameAqui.", status="unavailable")
+            try:
+                extraction = await self.bounded_extract(current, "basic")
+            except SearchProviderError as exc:
+                raise ReputationError(str(exc), status="unavailable") from None
+            if extraction is None:
+                return None
+            content = extraction.results.get(current)
+            last_exc: Exception | None = None
+            if content:
+                try:
+                    return parse_reputation(content, current, supplier, extraction_method="tavily_extract/basic")
+                except ReputationError as exc:
+                    last_exc = exc
+                    if exc.status in {"unconfirmed_identity", "outdated_period", "unrated"}:
+                        raise
+                except (ScrapingError, ValueError) as exc:
+                    last_exc = exc
+
+            if self.extract_credits_reserved + 2 <= settings.tavily_extract_max_credits_per_task:
+                try:
+                    extraction_adv = await self.bounded_extract(current, "advanced")
+                except SearchProviderError as exc:
+                    raise ReputationError(str(exc), status="unavailable") from None
+                if extraction_adv is not None:
+                    content_adv = extraction_adv.results.get(current)
+                    if content_adv:
+                        return parse_reputation(content_adv, current, supplier, extraction_method="tavily_extract/advanced")
+                    err_detail = extraction_adv.failed.get(current)
+                    if err_detail:
+                        raise ReputationError(
+                            f"Bloqueio ou falha ao extrair página do ReclameAqui via Tavily ({err_detail}).",
+                            status="blocked" if any(t in err_detail.lower() for t in ("403", "block", "captcha", "challenge", "forbidden")) else "insufficient_content",
+                        )
+            if isinstance(last_exc, ReputationError):
+                raise last_exc
+            if last_exc is not None:
+                raise ReputationError(str(last_exc), status="insufficient_content")
+            fail_msg = extraction.failed.get(current) or "Conteúdo insuficiente ou bloqueado no ReclameAqui."
+            raise ReputationError(
+                fail_msg,
+                status="blocked" if any(t in fail_msg.lower() for t in ("403", "block", "captcha", "challenge", "forbidden")) else "insufficient_content",
+            )
+
     async def reputation(self, supplier: ProductOffer) -> Reputation:
-        result = Reputation(supplier_domain=supplier.supplier_domain, checked_at=timestamp(), reason="Nenhuma página de empresa verificável foi encontrada no ReclameAqui.")
+        result = Reputation(
+            supplier_domain=supplier.supplier_domain,
+            checked_at=timestamp(),
+            status="not_found",
+            reason="Nenhuma página de empresa verificável foi encontrada no ReclameAqui.",
+        )
         try:
             urls = await self.search(f'site:reclameaqui.com.br/empresa/ "{supplier.supplier_domain}"')
             if not urls:
                 urls = await self.search(f'site:reclameaqui.com.br/empresa/ "{supplier.supplier_name}"')
         except ScrapingError as exc:
             result.reason = str(exc)
+            result.status = "blocked" if any(t in str(exc).lower() for t in ("403", "429", "bloquead")) else "unavailable"
             return result
         candidates = []
         for url in urls:
             parts = urlsplit(url)
-            company_path = re.fullmatch(r"(/empresa/[^/]+)(?:/(?:sobre|reputacao|lista-reclamacoes))?/?", parts.path)
+            company_path = re.fullmatch(r"(/empresa/[^/]+)(?:/(?:sobre|reputacao|lista-reclamacoes|indices))?/?", parts.path)
             if parts.hostname in {"www.reclameaqui.com.br", "reclameaqui.com.br"} and company_path:
                 candidates.append(urlunsplit(("https", "www.reclameaqui.com.br", company_path.group(1) + "/", "", "")))
         for url in list(dict.fromkeys(candidates))[:3]:
             result.url = url
             try:
                 html, final = await self.fetch(url)
-                return parse_reputation(html, final, supplier)
+                try:
+                    return parse_reputation(html, final, supplier, extraction_method="direct_html")
+                except ReputationError as parse_exc:
+                    if parse_exc.status in {"unconfirmed_identity", "outdated_period", "unrated"}:
+                        raise
+                    fallback = await self.extract_reputation_fallback(url, supplier)
+                    if fallback is not None:
+                        return fallback
+                    raise
             except (ScrapingError, ValueError) as exc:
-                result.reason = str(exc)
+                err_str = str(exc)
+                should_try_extract = not isinstance(exc, ReputationError) and not any(
+                    term in err_str.lower()
+                    for term in ("endereços locais e privados", "url de origem inválida", "porta de origem", "resolver o domínio", "robots.txt do site não permite")
+                )
+                if should_try_extract:
+                    try:
+                        fallback = await self.extract_reputation_fallback(url, supplier)
+                        if fallback is not None:
+                            return fallback
+                    except ReputationError as fb_exc:
+                        result.reason = f"{err_str} ({fb_exc})" if err_str not in str(fb_exc) else str(fb_exc)
+                        result.status = "blocked" if "403" in err_str or "bloquead" in err_str.lower() or fb_exc.status == "blocked" else fb_exc.status
+                        continue
+                    except (ScrapingError, ValueError) as fb_exc:
+                        result.reason = f"{err_str} ({fb_exc})"
+                        result.status = "blocked" if "403" in err_str or "bloquead" in err_str.lower() else "unavailable"
+                        continue
+                result.reason = err_str
+                if isinstance(exc, ReputationError):
+                    result.status = exc.status
+                elif any(t in err_str.lower() for t in ("403", "429", "bloquead", "antibot", "verificação humana")):
+                    result.status = "blocked"
+                else:
+                    result.status = "insufficient_content"
         return result
 
 
-def parse_reputation(html: str, url: str, supplier: ProductOffer) -> Reputation:
+def parse_reputation(html: str, url: str, supplier: ProductOffer, extraction_method: str = "direct_html") -> Reputation:
     if urlsplit(url).hostname not in {"www.reclameaqui.com.br", "reclameaqui.com.br"}:
-        raise ScrapingError("A reputação deve vir do domínio oficial do ReclameAqui.")
+        raise ReputationError("A reputação deve vir do domínio oficial do ReclameAqui.", status="unconfirmed_identity")
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(" ", strip=True)
     heading = soup.find("h1")
     company = heading.get_text(" ", strip=True) if heading else ""
-    links = [anchor.get("href", "") for anchor in soup.select("a[href]")]
-    matches_domain = any(domain(link) == supplier.supplier_domain for link in links if link.startswith(("http://", "https://")))
-    if not matches_domain:
-        raise ScrapingError("A página do ReclameAqui não vincula o domínio do fornecedor; identidade não confirmada.")
     if not company:
-        raise ScrapingError("Nome da empresa não identificado no ReclameAqui.")
-    pattern = r"nota\s+m[eé]dia\s+nos\s+[uú]ltimos\s+6\s+meses\s*(?:[eé:]\s*)?([0-9]{1,2}(?:[.,][0-9]{1,2})?)\s*/\s*10"
-    score_match = re.search(pattern, text, re.I)
+        md_heading = re.search(r"(?:^|\n)\s*#\s+([^\n#]{2,120})", html)
+        if md_heading:
+            company = md_heading.group(1).strip()
+    company = re.sub(r"\s*-\s*Reclame\s*Aqui\s*$", "", company, flags=re.I).strip()
+
+    # Market offers are online purchases; a separate physical-store profile
+    # must not lend its score to the online seller even when domains match.
+    if re.search(r"lojas?\s+f[íi]sicas?", company, re.I):
+        raise ReputationError("Perfil de loja física não comprova a reputação da loja online.", status="unconfirmed_identity")
+
+    links = [anchor.get("href", "") for anchor in soup.select("a[href]")]
+    links.extend(re.findall(r"\[[^\]]*\]\((https?://[^)\s]+)\)", html))
+    links.extend(re.findall(r"https?://[^\s<>)\"'\]]+", html))
+    matches_domain = any(
+        domain(link) == supplier.supplier_domain
+        for link in links
+        if link.startswith(("http://", "https://")) and domain(link) != "reclameaqui.com.br"
+    )
+    if not matches_domain and supplier.supplier_domain:
+        domain_pattern = r"(?:site|dom[íi]nio|url|oficial|https?://(?:www\.)?|www\.)\s*:?\s*(?:https?://)?(?:www\.)?" + re.escape(supplier.supplier_domain) + r"(?![A-Za-z0-9.\-])"
+        matches_domain = bool(re.search(domain_pattern, html, re.I))
+    if not matches_domain:
+        raise ReputationError("A página do ReclameAqui não vincula o domínio do fornecedor; identidade não confirmada.", status="unconfirmed_identity")
+    if not company:
+        raise ReputationError("Nome da empresa não identificado no ReclameAqui.", status="insufficient_content")
+
+    label_match = re.search(r"Reputa[çc][aã]o\s*:?\s*(RA\s*1000|[ÓO]tima|Boa|Regular|Ruim|N[aã]o recomendada|Sem\s+[íi]ndice)", text, re.I)
+    classification: str | None = None
+    if label_match:
+        raw_cls = re.sub(r"\s+", " ", label_match.group(1)).strip()
+        classification = "RA1000" if re.fullmatch(r"ra\s*1000", raw_cls, re.I) else raw_cls
+
+    # Remove consumer rating and non-6-month scores before matching the 6-month company reputation score
+    other_period_pattern = r"nota\s+(?:m[eé]dia\s+|da\s+empresa\s+)?(?:nos\s+[uú]ltimos\s+(?:12|24|36)\s+meses|geral)\s*(?:[eé:]\s*)?[0-9]{1,2}(?:[.,][0-9]{1,2})?(?:\s*/\s*10)?"
+    has_other_period_score = bool(re.search(other_period_pattern, text, re.I))
+    sanitized_text = re.sub(
+        r"nota\s+(?:m[eé]dia\s+)?do\s+consumidor\s*(?:[eé:]\s*)?[0-9]{1,2}(?:[.,][0-9]{1,2})?(?:\s*/\s*10)?",
+        " ",
+        text,
+        flags=re.I,
+    )
+    sanitized_text = re.sub(
+        other_period_pattern,
+        " ",
+        sanitized_text,
+        flags=re.I,
+    )
+
+    pattern = r"nota\s+(?:m[eé]dia\s+|da\s+empresa\s+)?nos\s+[uú]ltimos\s+6\s+meses\s*(?:[eé:]\s*)?([0-9]{1,2}(?:[.,][0-9]{1,2})?)\s*/\s*10"
+    score_match = re.search(pattern, sanitized_text, re.I)
     if not score_match:
-        raise ScrapingError("Nota de reputação dos últimos 6 meses não disponível; avaliações de consumidores não foram usadas como substituto.")
+        alt_pattern = r"[uú]ltimos\s+6\s+meses[^0-9]{0,35}?(?:nota(?:\s+da\s+empresa|\s+m[eé]dia)?\s*(?:[eé:]\s*)?)([0-9]{1,2}(?:[.,][0-9]{1,2})?)\s*/\s*10"
+        score_match = re.search(alt_pattern, sanitized_text, re.I)
+    if not score_match:
+        if (classification and re.search(r"sem\s+[íi]ndice", classification, re.I)) or re.search(
+            r"\b(?:sem\s+[íi]ndice|n[aã]o\s+tem\s+avalia[çc][aã]o\s+suficiente|n[aã]o\s+possui\s+[íi]ndice)\b",
+            text,
+            re.I,
+        ):
+            raise ReputationError("Empresa sem avaliação suficiente (Sem índice) nos últimos 6 meses no ReclameAqui.", status="unrated")
+        if has_other_period_score:
+            raise ReputationError("Apenas nota de outro período (12 meses ou geral) encontrada; reputação dos últimos 6 meses não confirmada.", status="outdated_period")
+        raise ReputationError("Nota de reputação dos últimos 6 meses não disponível; avaliações de consumidores não foram usadas como substituto.", status="insufficient_content")
+    if classification and re.search(r"sem\s+[íi]ndice", classification, re.I):
+        raise ReputationError("Empresa com classificação Sem índice nos últimos 6 meses no ReclameAqui.", status="unrated")
     score = Decimal(score_match.group(1).replace(",", "."))
     if not 0 <= score <= 10:
-        raise ScrapingError("Nota de reputação fora da escala 0–10.")
-    label = re.search(r"Reputa[çc][aã]o\s+(RA1000|[ÓO]tima|Boa|Regular|Ruim|N[aã]o recomendada)", text, re.I)
+        raise ReputationError("Nota de reputação fora da escala 0–10.", status="insufficient_content")
     period = re.search(r"Dados de\s+(\d{2}/\d{2}/\d{4})\s+at[eé]\s+(\d{2}/\d{2}/\d{4})", text, re.I)
     if period:
         start, end = (datetime.strptime(value, '%d/%m/%Y').date() for value in period.groups())
         today = datetime.now(timezone.utc).date()
         if end < start or end > today or (today - end).days > 45:
-            raise ScrapingError('Período de reputação desatualizado ou inválido; aprovação pendente de dados atuais.')
+            raise ReputationError('Período de reputação desatualizado ou inválido; aprovação pendente de dados atuais.', status='outdated_period')
+    final_label = classification or "Nota verificada"
+    is_bad_label = bool(classification and re.search(r'ruim|n[aã]o recomend', classification, re.I))
+    approved = score >= 6 and not is_bad_label
     return Reputation(
-        supplier_domain=supplier.supplier_domain, company_name=company, url=url, score=score,
-        label=label.group(1) if label else "Nota verificada", period=period.group(0) if period else "Últimos 6 meses",
-        checked_at=timestamp(), verified=True, approved=score >= 6 and not (label and re.search(r'ruim|n[aã]o recomend', label.group(1), re.I)),
-        reason="Reputação verificada ≥ 6,0." if score >= 6 and not (label and re.search(r'ruim|n[aã]o recomend', label.group(1), re.I)) else "Rejeitado: nota inferior a 6,0 ou classificação desfavorável.",
+        supplier_domain=supplier.supplier_domain,
+        company_name=company,
+        url=url,
+        score=score,
+        scale=10,
+        label=final_label,
+        classification=classification,
+        period=period.group(0) if period else "Últimos 6 meses",
+        source="reclameaqui.com.br",
+        checked_at=timestamp(),
+        extraction_method=extraction_method,
+        status="verified",
+        verified=True,
+        approved=approved,
+        reason="Reputação verificada ≥ 6,0." if approved else "Rejeitado: nota inferior a 6,0 ou classificação desfavorável.",
         evidence_sha256=hashlib.sha256(html.encode()).hexdigest(),
     )
 

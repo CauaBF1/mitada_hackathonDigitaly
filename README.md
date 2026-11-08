@@ -21,6 +21,17 @@ Abra http://localhost:3000. A API Nest fica em http://localhost:4000 e os agente
 
 ### Desenvolvimento local e integrações
 
+Com os builds de `api` e `frontend` atualizados, execute a stack atual pelo supervisor local:
+
+```sh
+backend/.venv/bin/python scripts/dev_nexo.py
+```
+
+Ele inicia Next.js, NestJS, agentes Python e gateway Telegram em loopback, com o Node 22 isolado e logs em `.local/logs/`. Ctrl+C encerra os quatro serviços. O túnel Telegram é iniciado separadamente. `scripts/dev.py` pertence à arquitetura antiga e não inicia a API NestJS.
+
+Extração Tavily, correções de confiabilidade e evidências de validação: [revisão Tavily/Telegram](docs/revisao-tavily-telegram.md).
+
+
 O `.env` da raiz contém as credenciais locais. Para o Python carregá-lo antes da configuração, inicie os agentes a partir da raiz:
 
 ```sh

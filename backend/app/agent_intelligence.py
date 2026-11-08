@@ -4,7 +4,7 @@ from typing import Literal
 
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .config import settings
 
@@ -163,10 +163,15 @@ class ConversationTerms(StructuredResult):
 class ConversationTurn(StructuredResult):
     intent: str = Field(min_length=1, max_length=80)
     reply: str = Field(min_length=1, max_length=1200)
-    terms: ConversationTerms
+    terms: ConversationTerms = Field(default_factory=ConversationTerms)
     explicit_confirmation: bool = False
     terms_changed: bool = False
     purchase_acceptance: Literal['accepted', 'rejected', 'unclear'] = 'unclear'
+
+    @field_validator('terms', mode='before')
+    @classmethod
+    def _normalize_null_terms(cls, value):
+        return ConversationTerms() if value is None else value
 
 
 CONVERSATION_PROMPT = """

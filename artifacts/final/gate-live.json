@@ -132,7 +132,7 @@
     "evidence_message_ids": [
       6
     ],
-    "audited_at": "2026-11-07T15:45:26.300227+00:00"
+    "audited_at": "2026-11-08T13:25:06.069603+00:00"
   },
   "trace": [
     {
@@ -141,8 +141,8 @@
       "thread_id": "telegram:1:1",
       "node": "discovery_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:22.367455+00:00",
-      "finished_at": "2026-11-07T15:45:22.625337+00:00",
+      "started_at": "2026-11-08T13:25:03.489570+00:00",
+      "finished_at": "2026-11-08T13:25:03.621948+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -216,8 +216,8 @@
       "thread_id": "telegram:1:1",
       "node": "memory_profiler_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:22.628648+00:00",
-      "finished_at": "2026-11-07T15:45:22.641876+00:00",
+      "started_at": "2026-11-08T13:25:03.623734+00:00",
+      "finished_at": "2026-11-08T13:25:03.628807+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -312,8 +312,8 @@
       "thread_id": "telegram:1:1",
       "node": "tactical_negotiator_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:22.644067+00:00",
-      "finished_at": "2026-11-07T15:45:22.751732+00:00",
+      "started_at": "2026-11-08T13:25:03.629690+00:00",
+      "finished_at": "2026-11-08T13:25:03.709682+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -429,8 +429,8 @@
       "thread_id": "telegram:1:1",
       "node": "tactical_negotiator_node",
       "status": "paused",
-      "started_at": "2026-11-07T15:45:22.754221+00:00",
-      "finished_at": "2026-11-07T15:45:22.756549+00:00",
+      "started_at": "2026-11-08T13:25:03.711260+00:00",
+      "finished_at": "2026-11-08T13:25:03.712214+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -541,8 +541,8 @@
       "thread_id": "telegram:1:1",
       "node": "tactical_negotiator_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:25.719234+00:00",
-      "finished_at": "2026-11-07T15:45:25.767001+00:00",
+      "started_at": "2026-11-08T13:25:05.514247+00:00",
+      "finished_at": "2026-11-08T13:25:05.549546+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -693,8 +693,8 @@
       "thread_id": "telegram:1:1",
       "node": "tactical_negotiator_node",
       "status": "paused",
-      "started_at": "2026-11-07T15:45:25.770620+00:00",
-      "finished_at": "2026-11-07T15:45:25.772260+00:00",
+      "started_at": "2026-11-08T13:25:05.551411+00:00",
+      "finished_at": "2026-11-08T13:25:05.552274+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -806,8 +806,8 @@
       "thread_id": "telegram:1:1",
       "node": "tactical_negotiator_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:26.285060+00:00",
-      "finished_at": "2026-11-07T15:45:26.293171+00:00",
+      "started_at": "2026-11-08T13:25:06.061181+00:00",
+      "finished_at": "2026-11-08T13:25:06.065312+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,
@@ -960,8 +960,8 @@
       "thread_id": "telegram:1:1",
       "node": "compliance_auditor_node",
       "status": "completed",
-      "started_at": "2026-11-07T15:45:26.295173+00:00",
-      "finished_at": "2026-11-07T15:45:26.335132+00:00",
+      "started_at": "2026-11-08T13:25:06.066468+00:00",
+      "finished_at": "2026-11-08T13:25:06.098259+00:00",
       "input": {
         "request_id": 1,
         "generation": 1,

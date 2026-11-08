@@ -6,7 +6,7 @@ const base = () => (process.env.API_URL || "http://127.0.0.1:4000").replace(/\/$
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 async function upstream(path: string, init: RequestInit = {}) {
-  const timeout = path.endsWith("/reputation-refresh") ? 40000 : 12000;
+  const timeout = path.endsWith("/reputation-refresh") ? 40000 : path === "integrations/search" ? 30000 : 12000;
   return fetch(`${base()}/${path.replace(/^\//, "")}`, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout), headers: { "Content-Type": "application/json", ...init.headers } });
 }
 function asRun(row: any) {
@@ -259,6 +259,22 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     return json(payload, 200);
   }
   if (request.method === "GET" && endpoint === "godmode/dashboard") return dashboard();
+
+  if (endpoint === "integrations/search" && (request.method === "GET" || request.method === "POST")) {
+    try {
+      const response = await upstream(endpoint, {
+        method: request.method,
+        ...(request.method === "POST" ? {
+          headers: { "X-Nexo-Settings": request.headers.get("X-Nexo-Settings") || "", ...(origin ? { Origin: origin } : {}) },
+          body: await request.text(),
+        } : origin ? { headers: { Origin: origin } } : {}),
+      });
+      const body = await response.text();
+      return new NextResponse(body, { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch {
+      return json({ detail: "Serviço de busca temporariamente indisponível." }, 503);
+    }
+  }
 
   if (request.method === "GET" && /^history(?:\/[0-9a-f-]{36})?$/i.test(endpoint)) {
     try {

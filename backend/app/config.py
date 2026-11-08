@@ -6,7 +6,10 @@ import re
 from dotenv import load_dotenv
 
 
-load_dotenv(Path(__file__).resolve().parents[1] / '.env', override=False)
+_BACKEND_ENV = Path(__file__).resolve().parents[1] / '.env'
+_ROOT_ENV = Path(__file__).resolve().parents[2] / '.env'
+load_dotenv(_BACKEND_ENV, override=False)
+load_dotenv(_ROOT_ENV, override=False)
 
 
 def personal_telegram_chat_id() -> int:
@@ -65,7 +68,13 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     agent_checkpoint_path: Path = Path(".local/agent-checkpoints.sqlite")
     max_negotiation_rounds: int = Field(default=3, ge=1, le=5)
+    llm_timeout_seconds: float = Field(default=20.0, ge=3.0, le=90.0)
     tavily_api_key: SecretStr | None = None
+    tavily_extract_timeout_seconds: float = Field(default=18.0, ge=2.0, le=60.0)
+    tavily_extract_max_urls_per_task: int = Field(default=5, ge=1, le=20)
+    tavily_extract_max_credits_per_task: int = Field(default=4, ge=1, le=20)
+    tavily_extract_max_retries: int = Field(default=2, ge=1, le=3)
+    tavily_extract_concurrency: int = Field(default=2, ge=1, le=5)
     search_credentials_path: Path = Path('.local/search_credentials.json')
 
     # Vapi — agente de voz duplex

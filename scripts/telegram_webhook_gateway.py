@@ -24,17 +24,32 @@ def _dotenv_value(key: str) -> str:
 
 
 MAX_BODY = 65536
+GATEWAY_TIMEOUT_SECONDS = float(os.environ.get("GATEWAY_TIMEOUT_SECONDS") or _dotenv_value("GATEWAY_TIMEOUT_SECONDS") or "45")
 NEST_API_URL = (os.environ.get("NEST_API_URL") or _dotenv_value("NEST_API_URL") or "http://127.0.0.1:4000").rstrip("/")
 SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET") or _dotenv_value("TELEGRAM_WEBHOOK_SECRET")
 
 
+def _extract_update_id(raw_body: bytes) -> int | None:
+    try:
+        parsed = json.loads(raw_body.decode("utf-8"))
+        if isinstance(parsed, dict) and isinstance(parsed.get("update_id"), int):
+            return parsed["update_id"]
+    except Exception:
+        pass
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        # Avoid logging headers or request bodies that may contain credentials.
+        # Avoid logging headers, paths with query strings, or request bodies that may contain credentials.
         super().log_message("%s", fmt.split("%", 1)[0])
 
+    def log_event(self, message: str):
+        super().log_message("%s", message)
+
     def do_POST(self):
-        if self.path != "/webhook/telegram":
+        path = self.path.split("?", 1)[0]
+        if path != "/webhook/telegram":
             return self.reply(404, {"detail": "Not Found"})
         supplied = self.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not SECRET or not supplied or not hmac.compare_digest(supplied, SECRET):
@@ -46,35 +61,49 @@ class Handler(BaseHTTPRequestHandler):
         if length < 0 or length > MAX_BODY:
             return self.reply(413, {"detail": "Atualização excedeu o limite."})
         body = self.rfile.read(length)
+        update_id = _extract_update_id(body)
         request = Request(NEST_API_URL + "/webhook/telegram", data=body, method="POST", headers={
             "Content-Type": self.headers.get("Content-Type", "application/json"),
             "X-Telegram-Bot-Api-Secret-Token": supplied,
         })
         try:
-            with urlopen(request, timeout=40) as response:
+            with urlopen(request, timeout=GATEWAY_TIMEOUT_SECONDS) as response:
                 payload, status = response.read(MAX_BODY + 1), response.status
         except HTTPError as error:
             payload, status = error.read(MAX_BODY + 1), error.code
-        except (URLError, TimeoutError):
-            return self.reply(503, {"detail": "API temporariamente indisponível."})
+            self.log_event(f"webhook_forward update_id={update_id} status={status}")
+        except TimeoutError:
+            self.log_event(f"webhook_forward update_id={update_id} error=upstream_timeout")
+            return self.reply(503, {"detail": "API temporariamente indisponível.", "code": "upstream_timeout"})
+        except URLError as error:
+            reason = getattr(error, "reason", None)
+            reason_name = type(reason).__name__ if reason is not None else type(error).__name__
+            self.log_event(f"webhook_forward update_id={update_id} error=upstream_unreachable reason={reason_name}")
+            return self.reply(503, {"detail": "API temporariamente indisponível.", "code": "upstream_unreachable"})
         if len(payload) > MAX_BODY:
             return self.reply(502, {"detail": "Resposta da API excedeu o limite."})
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            self.log_event(f"webhook_forward update_id={update_id} warn=client_disconnected status={status}")
 
     def do_GET(self):
         self.reply(404, {"detail": "Not Found"})
 
     def reply(self, status, data):
         payload = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 
 if __name__ == "__main__":
