@@ -69,7 +69,7 @@ function asRun(row: any) {
   const confirmedQuote = decisionQuote || matchedCompletedQuote;
   const draft = row.supplier_draft && typeof row.supplier_draft === "object" ? row.supplier_draft : null;
   const draftTerms = draft?.terms && typeof draft.terms === "object" ? draft.terms : null;
-  const latestTelegramQuote = quotes.find((quote: any) => !quote.source_url && (quote.supplier_chat_id != null || /^(?:telegram|conversation|recovery):/i.test(String(quote.event_id || ""))));
+  const latestTelegramQuote = quotes.find((quote: any) => !quote.source_url && (quote.supplier_chat_id != null || /^(?:telegram|conversation|recovery|voice|whatsapp):/i.test(String(quote.event_id || ""))));
   const hasDraftExtraction = Boolean(draftTerms && (["unit_cents", "shipping_cents", "fees_cents", "lead_days", "available_qty", "valid_until", "payment_terms", "conditions"].some(k => draftTerms[k] != null && draftTerms[k] !== "") || draftTerms.product_confirmed === true || draftTerms.destination_confirmed === true));
   const partialSupplierQuote = !confirmedQuote && !completedQuote && (latestTelegramQuote || hasDraftExtraction) ? (() => {
     const unitCents = draftTerms?.unit_cents ?? latestTelegramQuote?.unit_cents ?? null;
@@ -196,15 +196,50 @@ async function dashboard() {
   } });
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const endpoint = (await context.params).path.join("/");
+  const isPublicCallSession = /^call-session\/[0-9a-f-]{36}(?:\/end)?$/i.test(endpoint);
   const hostHeader = request.headers.get("host");
   let requestHostname = request.nextUrl.hostname;
   if (hostHeader) {
     try { requestHostname = new URL(`http://${hostHeader}`).hostname; } catch { return json({ detail: "Acesso permitido somente pelo endereço local." }, 403); }
   }
-  if (!["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
+  if (!isPublicCallSession && !["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
   const origin = request.headers.get("origin");
   if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
-  const endpoint = (await context.params).path.join("/");
+
+  const callSession = endpoint.match(/^call-session\/([0-9a-f-]{36})(?:\/(end))?$/i);
+  if (callSession && request.method === "GET" && !callSession[2]) {
+    try {
+      const response = await upstream(`call-session/${callSession[1]}`);
+      if (!response.ok) return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+      const data: any = await response.json();
+      return json({
+        ...data,
+        vapi_public_key: data?.vapi_public_key || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || process.env.VAPI_PUBLIC_KEY || process.env.VAPI_API_KEY || null,
+        assistant_id: data?.assistant_id || process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID || process.env.VAPI_ASSISTANT_ID || null,
+      });
+    } catch {
+      return json({ detail: "Sessão de chamada temporariamente indisponível." }, 503);
+    }
+  }
+  if (callSession && request.method === "POST" && callSession[2] === "end") {
+    try {
+      const response = await upstream(`call-session/${callSession[1]}/end`, { method: "POST", body: await request.text() });
+      return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch {
+      return json({ detail: "Não foi possível encerrar a sessão de chamada." }, 503);
+    }
+  }
+  const callSupplier = endpoint.match(/^requests?\/([0-9a-f-]{36})\/call-supplier$/i);
+  if (callSupplier && request.method === "POST") {
+    try {
+      const bodyText = await request.text();
+      const response = await upstream(`requests/${callSupplier[1]}/call-supplier`, { method: "POST", body: bodyText || "{}" });
+      return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch {
+      return json({ detail: "Não foi possível iniciar a chamada para o fornecedor." }, 503);
+    }
+  }
   if (request.method === "GET" && endpoint === "auth/config") {
     try {
       const response = await upstream("auth/config");

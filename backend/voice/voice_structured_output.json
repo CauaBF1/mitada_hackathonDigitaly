@@ -16,6 +16,22 @@
         "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
         "description": "Last confirmed unit price in BRL, including zero if explicitly offered."
       },
+      "shipping_fee": {
+        "type": "string",
+        "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
+        "description": "Confirmed shipping fee in BRL; \"0.00\" if free or included."
+      },
+      "fees": {
+        "type": "string",
+        "pattern": "^\\d{1,10}(\\.\\d{1,2})?$",
+        "description": "Confirmed additional taxes/fees in BRL; \"0.00\" if none or included."
+      },
+      "lead_days": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3650,
+        "description": "Confirmed delivery lead time in integer days (>= 0)."
+      },
       "qty": {
         "type": "integer",
         "minimum": 0,
@@ -33,6 +49,14 @@
         "minLength": 1,
         "maxLength": 4000,
         "description": "Confirmed payment, freight and tax conditions; explicitly describe any changes."
+      },
+      "product_confirmed": {
+        "type": "boolean",
+        "description": "True after confirming the product matches the request."
+      },
+      "destination_confirmed": {
+        "type": "boolean",
+        "description": "True after confirming delivery to the requested destination/CEP."
       },
       "negotiation_rounds": {
         "type": "integer",
@@ -61,9 +85,14 @@
     "required": [
       "initial_price",
       "final_price",
+      "shipping_fee",
+      "fees",
+      "lead_days",
       "qty",
       "delivery_time",
       "conditions",
+      "product_confirmed",
+      "destination_confirmed",
       "negotiation_rounds",
       "currency",
       "price_basis",

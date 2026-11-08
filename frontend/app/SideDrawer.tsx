@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Download, ExternalLink, Globe, MessageCircle, ShieldCheck, X } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Globe, MessageCircle, Phone, ShieldCheck, X } from "lucide-react";
 import { brl, referenceProduct, safeUrl, requestJson, type PurchaseRequest } from "./contracts";
 
 import RequestActions from "./RequestActions";
@@ -14,6 +14,7 @@ const MISSING_LABELS: Record<string, string> = {
   available_qty: "estoque disponível",
   product_confirmed: "confirmação do produto",
   destination_confirmed: "confirmação do CEP",
+  supplier_confirmed: "confirmação explícita de fechamento da proposta",
   safe_total: "validação de total seguro",
 };
 
@@ -211,7 +212,10 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
         {!!row.errors.length && <details className="rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer text-xs font-semibold">Limitações da coleta ({row.errors.length})</summary><ul className="mt-3 space-y-2 text-xs text-slate-500">{row.errors.map((error, i) => <li key={i} className="break-words">{error}</li>)}</ul></details>}
         <button onClick={() => exportEvidence(row)} className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"><Download size={14} />Exportar evidências</button>
       </div>
-      <footer className="border-t border-slate-100 bg-white p-5"><button onClick={openChat} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 p-3 text-sm font-semibold text-white hover:bg-blue-700"><MessageCircle size={18} />Acompanhar conversa ao vivo</button></footer>
+      <footer className="border-t border-slate-100 bg-white p-5 space-y-2.5">
+        <button onClick={openChat} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 p-3 text-sm font-semibold text-white hover:bg-blue-700"><MessageCircle size={18} />Acompanhar conversa ao vivo</button>
+        <a href={`/call/${row.id}`} target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"><Phone size={15} />Abrir Ligação de Voz Full-Duplex (/call/{row.id.slice(0, 8)}…)</a>
+      </footer>
     </div>}
   </dialog>;
 }

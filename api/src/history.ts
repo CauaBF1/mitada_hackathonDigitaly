@@ -83,7 +83,7 @@ export class HistoryService {
         const key = createHash('sha256').update(JSON.stringify([id,channel,message.chat_id])).digest('hex').slice(0,24);
         if (!groups.has(key)) {
           const contact = channel === 'whatsapp' ? this.db.prepare('SELECT name FROM whatsapp_contacts WHERE request_id=? AND number=?').get(id, message.chat_id) as any : null;
-          groups.set(key, { id: key, channel, contact_name: contact?.name || `Contato ${channel === 'telegram' ? 'Telegram' : 'WhatsApp'} ${groups.size + 1}`, messages: [] });
+          groups.set(key, { id: key, channel, contact_name: contact?.name || `Contato ${channel === 'telegram' ? 'Telegram' : channel === 'voice' ? 'Voz' : 'WhatsApp'} ${groups.size + 1}`, messages: [] });
         }
         groups.get(key).messages.push({ id: message.id, sender_type: message.sender_type, content: message.content,
           delivery_status: message.delivery_status, channel, created_at: message.created_at });

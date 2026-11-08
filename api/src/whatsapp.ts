@@ -12,8 +12,20 @@ export function webhookAuth(received: string, expected: string) {
 /** Business data stays in the same SQLite database as Telegram. Network I/O is outside transactions. */
 export class WhatsAppService {
   private active = new Set<string>();
-  constructor(private db: Database.Database, private getRequest: (id: string) => any,
-    private addQuote: (id: string, quote: any) => any) {
+  constructor(
+    private db: Database.Database,
+    private getRequest: (id: string) => any,
+    private addQuote: (id: string, quote: any) => any,
+    private sendTelegramByKey?: (id: string, text: string, key: string) => Promise<{ ok: boolean; chats: string[] }>,
+    private onVoiceQuote?: (
+      id: string,
+      callId: string,
+      supplierId: string,
+      supplierName: string,
+      rawQuote: any,
+      transcript: any[],
+    ) => Promise<{ completed: boolean; quote: any; missing: string[]; missingLabels: string[] }>,
+  ) {
     db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_contacts(
       request_id TEXT NOT NULL REFERENCES requests(id), supplier_id TEXT NOT NULL, name TEXT NOT NULL,
       number TEXT NOT NULL, PRIMARY KEY(request_id,supplier_id), UNIQUE(request_id,number));
@@ -90,38 +102,224 @@ export class WhatsAppService {
     return { ok: status === 'sent', status, message_id: messageId };
   }
 
+  private extractVoiceQuote(body: any): any {
+    if (!body || typeof body !== 'object') return null;
+    if (body.quote && typeof body.quote === 'object') return body.quote;
+    if (body.final_price !== undefined || body.initial_price !== undefined || body.unit_cents !== undefined) {
+      return body;
+    }
+    const message = body.message;
+    if (!message || typeof message !== 'object') return null;
+    const artifacts = [message.call?.artifact, message.artifact].filter(a => a && typeof a === 'object');
+    for (const artifact of artifacts) {
+      if (Array.isArray(artifact.messages)) {
+        const recorded: any[] = [];
+        for (const entry of artifact.messages) {
+          const tools = entry?.toolCalls || entry?.tool_calls || [];
+          if (Array.isArray(tools)) {
+            for (const tool of tools) {
+              const fn = tool?.function;
+              if (fn?.name === 'submit_procurement_quote' && fn.arguments != null) {
+                try {
+                  recorded.push(typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : fn.arguments);
+                } catch {}
+              }
+            }
+          }
+        }
+        if (recorded.length) return recorded[recorded.length - 1];
+      }
+      if (artifact.structuredOutputs && typeof artifact.structuredOutputs === 'object') {
+        for (const out of Object.values(artifact.structuredOutputs) as any[]) {
+          if (out?.name === 'procurement_quote' && out.result && typeof out.result === 'object') {
+            return out.result;
+          }
+        }
+      }
+    }
+    if (message.analysis?.structuredData && typeof message.analysis.structuredData === 'object') {
+      return message.analysis.structuredData;
+    }
+    return null;
+  }
+
+  private extractVoiceTranscript(body: any): { sender_type: 'AI' | 'SUPPLIER'; content: string; timestamp?: string }[] {
+    const turns: { sender_type: 'AI' | 'SUPPLIER'; content: string; timestamp?: string }[] = [];
+    if (Array.isArray(body?.transcript)) {
+      for (const item of body.transcript) {
+        if (!item || typeof item !== 'object') continue;
+        const text = String(item.content ?? item.text ?? item.message ?? '').trim();
+        if (!text) continue;
+        const sender = item.sender_type === 'AI' || item.role === 'assistant' || item.role === 'bot' ? 'AI' : 'SUPPLIER';
+        turns.push({ sender_type: sender, content: text, timestamp: item.timestamp });
+      }
+      if (turns.length) return turns;
+    } else if (typeof body?.transcript === 'string' && body.transcript.trim()) {
+      turns.push({ sender_type: 'SUPPLIER', content: body.transcript.trim() });
+      return turns;
+    }
+    const message = body?.message;
+    const artifacts = [message?.call?.artifact, message?.artifact].filter(a => a && typeof a === 'object');
+    for (const artifact of artifacts) {
+      if (Array.isArray(artifact.messages)) {
+        for (const entry of artifact.messages) {
+          if (!entry || typeof entry !== 'object') continue;
+          const role = String(entry.role || '').toLowerCase();
+          if (role === 'system' || role === 'tool') continue;
+          const text = String(entry.message ?? entry.content ?? '').trim();
+          if (!text) continue;
+          const sender = role === 'assistant' || role === 'bot' || role === 'ai' ? 'AI' : 'SUPPLIER';
+          turns.push({ sender_type: sender, content: text });
+        }
+        if (turns.length) return turns;
+      }
+      if (typeof artifact.transcript === 'string' && artifact.transcript.trim()) {
+        turns.push({ sender_type: 'SUPPLIER', content: artifact.transcript.trim() });
+        return turns;
+      }
+    }
+    return turns;
+  }
+
   async voice(body: any) {
     const message = body?.message;
-    if (message && message.type !== 'end-of-call-report') return { ok: true, ignored: 'unsupported-event' };
-    const metadata = message?.call?.metadata || body;
-    const id = metadata?.request_id, supplierId = metadata?.supplier_id;
+    if (message && !['tool-calls', 'end-of-call-report'].includes(message.type)) return { ok: true, ignored: 'unsupported-event' };
+    const metadata = message?.call?.metadata || body?.metadata || body;
+    const id = metadata?.request_id ?? body?.request_id;
+    const supplierId = metadata?.supplier_id ?? body?.supplier_id ?? (message ? 'fornecedor-voz' : undefined);
+    const supplierName = String(metadata?.supplier_name || body?.supplier_name || 'Fornecedor Voz');
     const callId = message?.call?.id || body?.call_id;
-    const status = message?.endedReason || body?.status;
-    const failed = ['busy', 'no-answer', 'failed', 'customer-busy', 'customer-did-not-answer', 'call-start-error'];
-    const ended = ['hangup', 'completed', 'ended', 'customer-ended-call', 'assistant-ended-call', 'silence-timed-out', 'max-duration-reached'];
-    if (typeof id !== 'string' || typeof supplierId !== 'string' || typeof callId !== 'string' || !callId || callId.length > 200)
+    if (typeof id !== 'string' || !id || typeof supplierId !== 'string' || !supplierId || typeof callId !== 'string' || !callId || callId.length > 200)
       throw new BadRequestException('Evento de voz requer request_id, supplier_id e call_id.');
     const req = this.getRequest(id);
+    if (message?.type === 'tool-calls') {
+      const rawCalls = Array.isArray(message.toolCallList) && message.toolCallList.length
+        ? message.toolCallList
+        : Array.isArray(message.toolWithToolCallList)
+          ? message.toolWithToolCallList.map((item: any) => item?.toolCall).filter(Boolean)
+          : [];
+      const results: any[] = [];
+      for (const tool of rawCalls) {
+        const fnName = tool?.function?.name || '';
+        const toolCallId = tool?.id || 'tool-call';
+        if (fnName !== 'submit_procurement_quote') {
+          results.push({ name: fnName, toolCallId, result: JSON.stringify({ status: 'error', message: 'Unsupported tool' }) });
+          continue;
+        }
+        if (req.status === 'decidida') {
+          results.push({ name: fnName, toolCallId, result: JSON.stringify({ status: 'ignored', reason: 'decided' }) });
+          continue;
+        }
+        try {
+          const rawArgs = tool.function.arguments;
+          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          const transcript = this.extractVoiceTranscript(body);
+          const outcome = this.onVoiceQuote
+            ? await this.onVoiceQuote(id, callId, supplierId, supplierName, args, transcript)
+            : { completed: false, quote: null, missing: [], missingLabels: [] };
+          this.db.transaction(() => {
+            this.db.prepare('INSERT OR IGNORE INTO whatsapp_voice_calls VALUES(?,?,?,?)').run(callId, id, supplierId, outcome.completed ? 1 : 0);
+            if (outcome.completed) this.db.prepare('UPDATE whatsapp_voice_calls SET quote_completed=1 WHERE id=?').run(callId);
+          })();
+          results.push({
+            name: fnName,
+            toolCallId,
+            result: JSON.stringify({ status: 'recorded', purchase_authorized: false, quote_completed: outcome.completed, missing_fields: outcome.missing }),
+          });
+        } catch {
+          results.push({
+            name: fnName,
+            toolCallId,
+            result: JSON.stringify({ status: 'error', message: 'Cotação inválida. Confirme preço unitário, frete, taxas, prazo em dias e estoque.' }),
+          });
+        }
+      }
+      return { results };
+    }
     if (req.status === 'decidida') return { ok: true, ignored: 'decided' };
+    const status = message?.endedReason || body?.status || (message?.type === 'end-of-call-report' ? 'completed' : undefined);
+    const failed = ['busy', 'no-answer', 'failed', 'customer-busy', 'customer-did-not-answer', 'call-start-error', 'webrtc-error', 'mic-denied', 'declined', 'error'];
+    const ended = ['hangup', 'completed', 'ended', 'customer-ended-call', 'assistant-ended-call', 'silence-timed-out', 'max-duration-reached', 'voicemail'];
     if (![...failed, ...ended].includes(status)) return { ok: true, ignored: 'non-terminal-status' };
-    const complete = metadata.quote_completed === true || body?.quote_completed === true || req.quotes.some((q: any) => q.event_id === `voice:${callId}` && q.eligible);
+
+    const transcript = this.extractVoiceTranscript(body);
+    let rawQuote = this.extractVoiceQuote(body);
+    if (!rawQuote && body?.allow_transcript_extraction === true && transcript.some(t => t.sender_type === 'SUPPLIER')) {
+      try {
+        const response = await fetch(`${process.env.AGENT_URL || 'http://agents:8000'}/interpret-quote`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.INTERNAL_API_TOKEN || ''}` },
+          body: JSON.stringify({
+            request_id: req.id,
+            product: req.product,
+            qty: req.qty,
+            destination: req.destination,
+            text: transcript.map(t => `${t.sender_type}: ${t.content}`).join('\n'),
+          }),
+          signal: AbortSignal.timeout(25000),
+        });
+        if (response.ok) {
+          const interpreted: any = await response.json();
+          if (interpreted && interpreted.unit_cents != null) {
+            const supplierText = transcript.filter(t => t.sender_type === 'SUPPLIER').map(t => t.content).join(' ');
+            const confirmedInSpeech = /(?:confirmo|confirmado|pode fechar|de acordo|fechado|está certo|tudo certo|sim)/i.test(supplierText);
+            rawQuote = {
+              ...interpreted,
+              supplier: supplierName,
+              supplier_confirmed: body?.supplier_confirmed === true || confirmedInSpeech,
+            };
+          }
+        }
+      } catch {}
+    }
+
+    let quoteOutcome: { completed: boolean; quote: any; missing: string[]; missingLabels: string[] } | null = null;
+    if ((rawQuote || transcript.length > 0) && this.onVoiceQuote) {
+      quoteOutcome = await this.onVoiceQuote(id, callId, supplierId, supplierName, rawQuote, transcript);
+    }
+
+    const refreshedReq = this.getRequest(id);
+    const complete = Boolean(quoteOutcome?.completed) || metadata.quote_completed === true || body?.quote_completed === true ||
+      refreshedReq.quotes.some((q: any) => q.event_id === `voice:${callId}` && q.eligible && (refreshedReq.quote_completion_state === 'concluida' || rawQuote == null));
     const call = this.db.transaction(() => {
       this.db.prepare('INSERT OR IGNORE INTO whatsapp_voice_calls VALUES(?,?,?,?)').run(callId, id, supplierId, complete ? 1 : 0);
       const saved = this.db.prepare('SELECT * FROM whatsapp_voice_calls WHERE id=?').get(callId) as any;
       if (saved.request_id !== id || saved.supplier_id !== supplierId) throw new BadRequestException('Chamada já vinculada a outro fornecedor/solicitação.');
       if (complete) this.db.prepare('UPDATE whatsapp_voice_calls SET quote_completed=1 WHERE id=?').run(callId);
-      return { ...saved, quote_completed: saved.quote_completed || complete };
+      return { ...saved, quote_completed: Boolean(saved.quote_completed || complete) };
     })();
-    if (call.quote_completed) return { ok: true, ignored: 'quote-completed' };
-    const contact = this.db.prepare('SELECT * FROM whatsapp_contacts WHERE request_id=? AND supplier_id=?').get(id, supplierId) as any;
-    if (!contact) {
-      this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Ligação encerrada sem cotação; fornecedor sem WhatsApp cadastrado.', id);
-      return { ok: true, ignored: 'no-whatsapp' };
+    if (call.quote_completed) {
+      return { ok: true, ignored: 'quote-completed', quote_completed: true, call_id: callId, request_id: id, quote: quoteOutcome?.quote || null };
     }
-    const sent = await this.sendWhatsApp(id, contact.number,
-      `Olá! Tentamos contato telefônico para cotar ${req.product} (Qtd: ${req.qty}, Destino: ${req.destination}), mas a ligação não completou. Você poderia nos informar o preço unitário, frete, taxas, prazo e estoque por aqui?`, `voice:${callId}`);
-    if (sent.ok) this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Fallback efetuado: cotação enviada ao fornecedor pelo WhatsApp após falha/encerramento da ligação.', id);
-    return { ok: true, fallback: sent };
+
+    const missingLabels = quoteOutcome?.missingLabels || [];
+    const waText = missingLabels.length
+      ? `⚠️ Tentamos concluir a cotação de ${req.product} (Qtd: ${req.qty}, Destino: ${req.destination}) — ${req.product} (${req.qty} un., destino ${req.destination}) por ligação de voz, mas a chamada encerrou com dados parciais. Você poderia nos informar ${missingLabels.join(', ')} por aqui?`
+      : `⚠️ Tentamos concluir a cotação de ${req.product} (Qtd: ${req.qty}, Destino: ${req.destination}) — ${req.product} (${req.qty} un., destino ${req.destination}) por ligação de voz, mas a chamada não foi concluída. Você poderia nos informar preço unitário, frete, taxas, prazo em dias e estoque disponível por aqui?`;
+    const tgText = missingLabels.length
+      ? `⚠️ A tentativa de ligação de voz para cotar ${req.product} (${req.qty} un., entrega em ${req.destination}) encerrou com dados parciais. Podemos seguir por aqui! Por favor, informe: ${missingLabels.join(', ')}.`
+      : `⚠️ A tentativa de ligação de voz para cotar ${req.product} (${req.qty} un., entrega em ${req.destination}) não pôde ser concluída. Podemos seguir por aqui! Por favor, informe preço unitário, frete, taxas adicionais, prazo de entrega (em dias) e disponibilidade de estoque.`;
+
+    const tgFallback = this.sendTelegramByKey ? await this.sendTelegramByKey(id, tgText, `voice:${callId}`) : { ok: false, chats: [] };
+    const contact = (this.db.prepare('SELECT * FROM whatsapp_contacts WHERE request_id=? AND supplier_id=?').get(id, supplierId)
+      || (supplierId === 'fornecedor-voz' ? this.db.prepare('SELECT * FROM whatsapp_contacts WHERE request_id=? ORDER BY rowid DESC LIMIT 1').get(id) : null)) as any;
+    if (!contact) {
+      const noticeText = tgFallback.chats.length > 0 && tgFallback.ok
+        ? 'Fallback efetuado: cotação enviada ao fornecedor pelo Telegram após falha/encerramento da chamada de voz.'
+        : 'Ligação encerrada sem cotação; fornecedor sem WhatsApp cadastrado.';
+      this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run(noticeText, id);
+      return {
+        ok: true,
+        ignored: 'no-whatsapp',
+        telegram_fallback: tgFallback,
+        ...(tgFallback.chats.length > 0 ? { fallback: { ok: tgFallback.ok, status: tgFallback.ok ? 'sent' : 'failed', channel: 'telegram' } } : {}),
+      };
+    }
+    const sent = await this.sendWhatsApp(id, contact.number, waText, `voice:${callId}`);
+    if (sent.ok || tgFallback.ok) {
+      this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Fallback efetuado: cotação enviada ao fornecedor pelo Telegram e WhatsApp após falha/encerramento da ligação.', id);
+    }
+    return { ok: true, fallback: sent, telegram_fallback: tgFallback };
   }
 
   async webhook(body: any, secret: string) {
