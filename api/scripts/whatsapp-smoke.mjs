@@ -20,7 +20,7 @@ const fake = createServer(async (req, res) => {
   res.setHeader('content-type', 'application/json');
   if (req.url === '/tasks') { res.writeHead(202).end('{"accepted":true}'); return; }
   if (req.url === '/bottest-telegram/sendMessage') { telegramSends.push(body); res.end(JSON.stringify({ ok:true, result:{ message_id:9000+telegramSends.length } })); return; }
-  if (req.url === '/conversation-turn') { res.end(JSON.stringify({ intent:'quotation', reply:'Recebi sua mensagem.', terms:null, explicit_confirmation:false, terms_changed:false, purchase_acceptance:'unclear' })); return; }
+  if (req.url === '/conversation-turn') { res.writeHead(404).end('{}'); return; }
   if (req.url === '/voice/call') {
     assert.equal(req.headers.authorization,'Bearer internal-test'); voiceAttempts.push(body);
     if (callMode==='reject') { res.writeHead(502).end('{"detail":"Provider rejected call"}'); return; }
@@ -58,7 +58,7 @@ async function start(testSupplierNumber = '', telegramEnabled = false) {
     ...process.env, PORT: String(port), DATABASE_PATH: dbPath, AGENT_URL: fakeUrl, INTERNAL_API_TOKEN: 'internal-test',
     WHATSAPP_API_URL: fakeUrl, WHATSAPP_API_KEY: 'evolution-test', WHATSAPP_INSTANCE_NAME: 'nexo', WHATSAPP_WEBHOOK_SECRET: 'wa-secret',
     VOICE_WEBHOOK_SECRET: 'voice-secret', TELEGRAM_BOT_TOKEN: telegramEnabled ? 'test-telegram' : '', TELEGRAM_API_URL: fakeUrl, TELEGRAM_ALLOWED_CHAT_IDS: '777', TELEGRAM_WEBHOOK_SECRET: 'test-telegram',
-    WHATSAPP_TEST_SUPPLIER_NUMBER: testSupplierNumber,
+    WHATSAPP_TEST_SUPPLIER_NUMBER: testSupplierNumber, VAPI_PUBLIC_KEY:'', NEXT_PUBLIC_VAPI_PUBLIC_KEY:'', AUTO_CONFIGURE_INTEGRATIONS:'false',
   } });
   child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
   for (let i = 0; i < 100; i++) {
@@ -93,18 +93,18 @@ try {
   const id = await create();
   assert.equal((await json(`/requests/${id}/whatsapp`, { supplier_id:'x',name:'x',number:'123' }, { authorization:'Bearer internal-test' })).status, 400);
   assert.equal((await json(`/requests/${id}/whatsapp`, {})).status, 401);
-  assert.equal((await voice(id, 'call-1')).body.fallback.status, 'sent');
-  assert.match(sends[0].text, /SSD \(Qtd: 2, Destino: 01001-000\)/);
-  assert.match((await json(`/requests/${id}`)).body.notice, /Fallback efetuado/);
+  assert.equal((await voice(id, 'call-1')).body.status, 'whatsapp');
+  assert.match(sends[0].text, /SSD \(2 unidades\).*01001-000/);
+  assert.match((await json(`/requests/${id}`)).body.notice, /aguardando resposta/);
   const before = sends.length;
   await Promise.all([voice(id,'call-1'), voice(id,'call-1','hangup')]); assert.equal(sends.length, before);
-  assert.equal((await voice(id,'success','completed',{quote_completed:true})).body.ignored,'quote-completed');
-  assert.equal((await voice(id,'success','hangup')).body.ignored,'quote-completed');
+  assert.equal((await voice(id,'success','completed',{quote_completed:true})).body.quote_completed,false,'unvalidated completion flag must not close the quote');
+  assert.equal((await voice(id,'success','hangup')).body.status,'whatsapp');
   const unknown = await json('/requests', { product:'CPU',qty:1,destination:'01001-000',specs:{} });
   assert.equal((await voice(unknown.body.id,'no-number')).body.ignored,'no-whatsapp');
-  for (const status of ['no-answer','failed','hangup']) assert.equal((await voice(id,`call-${status}`,status)).body.fallback.status,'sent');
+  for (const status of ['no-answer','failed','hangup']) assert.equal((await voice(id,`call-${status}`,status)).body.status,'whatsapp');
   const vapi = await json('/webhook/voice',{ message:{type:'end-of-call-report', endedReason:'customer-did-not-answer', call:{id:'vapi-1', metadata:{request_id:id,supplier_id:'supplier-a'}}} },{'x-voice-webhook-secret':'voice-secret'});
-  assert.equal(vapi.body.fallback.status,'sent');
+  assert.equal(vapi.body.status,'whatsapp');
   const loop = inbound('from-me'); loop.data.key.fromMe = true;
   assert.equal((await wa(loop)).body.ignored,'from-me');
   const group = inbound('group'); group.data.key.remoteJid='123@g.us'; assert.equal((await wa(group)).body.ignored,'unsupported-sender');
@@ -123,7 +123,7 @@ try {
   parseMode='rest'; await wa(inbound('rest'));
   current=(await json(`/requests/${id}`)).body;
   assert.equal(current.quotes[0].eligible,true); assert.equal(current.quotes[0].unit_cents,5000); assert.equal(current.quotes[0].fees_cents,0);
-  assert.match(sends.at(-1).text,/registrada/);
+  assert.match(sends.at(-1).text,/R\$ 40.00/,'complete terms start a counteroffer, not premature completion');
   parseMode='denied'; await wa(inbound('denied')); assert.equal((await json(`/requests/${id}`)).body.quotes[0].product_confirmed,false);
   // Separate suppliers must never share quote state or message history.
   await json(`/requests/${id}/whatsapp`,{supplier_id:'supplier-b',name:'B',number:'5511777777777'},{authorization:'Bearer internal-test'});
@@ -153,10 +153,8 @@ try {
   assert.ok(history.every(m=>m.channel==='whatsapp'));
   assert.ok(history.some(m=>m.sender_type==='AI' && m.delivery_status==='sent'));
   assert.ok(history.some(m=>m.sender_type==='SUPPLIER' && m.delivery_status==='received'));
-  // Network ambiguity never triggers automatic duplicate sends.
-  sendMode='disconnect'; const uncertain=await voice(second,'uncertain'); assert.equal(uncertain.body.fallback.status,'uncertain');
-  const count=sends.length; await voice(second,'uncertain'); assert.equal(sends.length,count);
-  sendMode='reject'; assert.equal((await voice(second,'rejected')).body.fallback.status,'failed'); sendMode='ok';
+  // A late voice event must not interrupt a supplier who already replied by text.
+  const count=sends.length;assert.equal((await voice(second,'late-voice')).body.ignored,'text-contact-already-active');assert.equal(sends.length,count);
   // Three consecutive interpreter failures exhaust the durable inbox.
   parseFailures=10; await wa(inbound('exhaust','5511999999999',parent));
   for(let i=0;i<2;i++) { db.prepare("UPDATE whatsapp_updates SET retry_after=NULL WHERE status='pending'").run(); const attempt=i+2; await until(()=>{ const state=db.prepare('SELECT attempts,status FROM whatsapp_updates ORDER BY rowid DESC LIMIT 1').get(); return state.attempts>=attempt && state.status!=='processing'; }); }

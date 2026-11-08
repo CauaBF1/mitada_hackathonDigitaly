@@ -23,13 +23,33 @@ services:
       WHATSAPP_SUPPLIER_NUMBER: ${WHATSAPP_SUPPLIER_NUMBER:-}
       WHATSAPP_TELEGRAM_FALLBACK_SECONDS: ${WHATSAPP_TELEGRAM_FALLBACK_SECONDS:-60}
       WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:-}
+      AUTO_CONFIGURE_INTEGRATIONS: "true"
+      WHATSAPP_AUTO_CONFIGURE_WEBHOOK: ${WHATSAPP_AUTO_CONFIGURE_WEBHOOK:-true}
+      WHATSAPP_INTERNAL_WEBHOOK_URL: http://api:4000/webhook/whatsapp
+      VOICE_ANSWER_TIMEOUT_SECONDS: ${VOICE_ANSWER_TIMEOUT_SECONDS:-120}
+      TUNNEL_METRICS_URL: ${TUNNEL_METRICS_URL:-}
       VOICE_WEBHOOK_SECRET: ${VOICE_WEBHOOK_SECRET:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      VAPI_API_KEY: ${VAPI_API_KEY:-}
+      VAPI_PUBLIC_KEY: ${VAPI_PUBLIC_KEY:-}
+      NEXT_PUBLIC_VAPI_PUBLIC_KEY: ${NEXT_PUBLIC_VAPI_PUBLIC_KEY:-}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-}
+      NEXT_PUBLIC_VAPI_ASSISTANT_ID: ${NEXT_PUBLIC_VAPI_ASSISTANT_ID:-}
       JWT_SECRET: ${JWT_SECRET:-nexo-dev-jwt-secret-change-in-production}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes: [business-data:/data]
     ports: ["127.0.0.1:4000:4000"]
-    depends_on: [agents]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      agents:
+        condition: service_healthy
+      evolution:
+        condition: service_started
   agents:
     restart: unless-stopped
     build:
@@ -64,17 +84,36 @@ services:
       VAPI_WEBHOOK_URL: ${VAPI_WEBHOOK_URL:-}
     volumes: [agent-data:/data]
     expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
   frontend:
     restart: unless-stopped
     build:
       context: ./frontend
     environment:
       API_URL: http://api:4000
+      ALLOW_EXTERNAL_ACCESS: ${ALLOW_EXTERNAL_ACCESS:-true}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      NEXT_PUBLIC_VAPI_PUBLIC_KEY: ${NEXT_PUBLIC_VAPI_PUBLIC_KEY:-}
+      VAPI_PUBLIC_KEY: ${VAPI_PUBLIC_KEY:-}
+      NEXT_PUBLIC_VAPI_ASSISTANT_ID: ${NEXT_PUBLIC_VAPI_ASSISTANT_ID:-}
+      VAPI_ASSISTANT_ID: ${VAPI_ASSISTANT_ID:-}
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       JWT_SECRET: ${JWT_SECRET:-nexo-dev-jwt-secret-change-in-production}
     ports: ["127.0.0.1:3000:3000"]
-    depends_on: [api]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      api:
+        condition: service_healthy
   # Evolution keeps its own infrastructure; the business API continues using SQLite.
   evolution:
     image: localhost/nexo-evolution:2.3.7-pairing-1

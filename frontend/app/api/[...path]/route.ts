@@ -70,7 +70,7 @@ function asRun(row: any) {
   const confirmedQuote = decisionQuote || matchedCompletedQuote;
   const draft = row.supplier_draft && typeof row.supplier_draft === "object" ? row.supplier_draft : null;
   const draftTerms = draft?.terms && typeof draft.terms === "object" ? draft.terms : null;
-  const latestTelegramQuote = quotes.find((quote: any) => !quote.source_url && (quote.supplier_chat_id != null || /^(?:telegram|conversation|recovery):/i.test(String(quote.event_id || ""))));
+  const latestTelegramQuote = quotes.find((quote: any) => !quote.source_url && (quote.supplier_chat_id != null || /^(?:telegram|conversation|recovery|voice|whatsapp):/i.test(String(quote.event_id || ""))));
   const hasDraftExtraction = Boolean(draftTerms && (["unit_cents", "shipping_cents", "fees_cents", "lead_days", "available_qty", "valid_until", "payment_terms", "conditions"].some(k => draftTerms[k] != null && draftTerms[k] !== "") || draftTerms.product_confirmed === true || draftTerms.destination_confirmed === true));
   const partialSupplierQuote = !confirmedQuote && !completedQuote && (latestTelegramQuote || hasDraftExtraction) ? (() => {
     const unitCents = draftTerms?.unit_cents ?? latestTelegramQuote?.unit_cents ?? null;
@@ -205,6 +205,7 @@ async function dashboard() {
   } });
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const endpoint = (await context.params).path.join("/");
   const hostHeader = request.headers.get("x-forwarded-host") || request.headers.get("host");
   let requestHostname = request.nextUrl.hostname;
   if (hostHeader) {
@@ -224,12 +225,71 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
       return json({ detail: "Origem inválida." }, 403);
     }
   }
-  const endpoint = (await context.params).path.join("/");
   if (request.method === "GET" && /^procurement\/[a-zA-Z0-9-]+\/price-history$/.test(endpoint)) {
     try {
       const response = await upstream(`${endpoint}${request.nextUrl.search}`);
       return json(await response.json(), response.status);
     } catch { return json({ detail: "Não foi possível carregar o histórico. Tente atualizar a análise." }, 503); }
+  }
+  if (request.method === "POST" && (endpoint === "webhook/telegram" || endpoint === "webhook/whatsapp")) {
+    const header = endpoint === "webhook/telegram" ? "x-telegram-bot-api-secret-token" : "x-whatsapp-webhook-secret";
+    try {
+      const response=await upstream(endpoint,{method:"POST",headers:{[header]:request.headers.get(header)||""},body:await request.text()});
+      return new NextResponse(await response.text(),{status:response.status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
+    }catch{return json({detail:"Webhook temporariamente indisponível."},503);}
+  }
+  if (endpoint === "webhook/voice" && request.method === "POST") {
+    try {
+      const secret =
+        request.headers.get("x-voice-webhook-secret") ||
+        request.headers.get("x-vapi-secret") ||
+        "";
+      const response = await upstream("webhook/voice", {
+        method: "POST",
+        headers: { ...(secret ? { "x-voice-webhook-secret": secret } : {}), ...(request.headers.get("x-call-session-token") ? { "x-call-session-token": request.headers.get("x-call-session-token")! } : {}) },
+        body: await request.text(),
+      });
+      return new NextResponse(await response.text(), {
+        status: response.status,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    } catch {
+      return json({ detail: "Webhook de voz temporariamente indisponível." }, 503);
+    }
+  }
+
+  const callSession = endpoint.match(/^call-session\/([0-9a-f-]{36})(?:\/(end|start))?$/i);
+  if (callSession && request.method === "GET" && !callSession[2]) {
+    try {
+      const response = await upstream(`call-session/${callSession[1]}`);
+      if (!response.ok) return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+      const data: any = await response.json();
+      return json({
+        ...data,
+        vapi_public_key: data?.vapi_public_key || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || process.env.VAPI_PUBLIC_KEY || null,
+        assistant_id: data?.assistant_id || process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID || process.env.VAPI_ASSISTANT_ID || null,
+      });
+    } catch {
+      return json({ detail: "Sessão de chamada temporariamente indisponível." }, 503);
+    }
+  }
+  if (callSession && request.method === "POST" && (callSession[2] === "end" || callSession[2] === "start")) {
+    try {
+      const response = await upstream(`call-session/${callSession[1]}/${callSession[2]}`, { method: "POST", body: await request.text() });
+      return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch {
+      return json({ detail: "Não foi possível encerrar a sessão de chamada." }, 503);
+    }
+  }
+  const callSupplier = endpoint.match(/^requests?\/([0-9a-f-]{36})\/call-supplier$/i);
+  if (callSupplier && request.method === "POST") {
+    try {
+      const bodyText = await request.text();
+      const response = await upstream(`requests/${callSupplier[1]}/call-supplier`, { method: "POST", body: bodyText || "{}" });
+      return new NextResponse(await response.text(), { status: response.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    } catch {
+      return json({ detail: "Não foi possível iniciar a chamada para o fornecedor." }, 503);
+    }
   }
   if (request.method === "GET" && endpoint === "auth/config") {
     try {

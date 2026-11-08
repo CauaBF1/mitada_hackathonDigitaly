@@ -468,7 +468,7 @@ class ConversationTurnRequest(BaseModel):
     destination: str = Field(min_length=1, max_length=200)
     message: str = Field(min_length=1, max_length=4000)
     history: list[dict[str, str]] = Field(default_factory=list, max_length=30)
-    phase: str = Field(pattern=r"^(opening|quotation|quote_confirmation|quote_completed|purchase)$")
+    phase: str = Field(pattern=r"^(opening|quotation|negotiation|quote_confirmation|quote_completed|purchase)$")
     terms: dict | None = None
     missing_fields: list[str] = Field(default_factory=list, max_length=30)
 

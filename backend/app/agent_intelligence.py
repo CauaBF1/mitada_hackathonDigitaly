@@ -161,6 +161,8 @@ class ConversationTerms(StructuredResult):
 
 
 class ConversationTurn(StructuredResult):
+    offer_is_final: bool = Field(default=False, description="Fornecedor explicitamente recusa novas melhorias ou afirma que este é o último/melhor preço.")
+    accepted_counter_offer: bool = Field(default=False, description="Na fase negotiation, fornecedor aceita explicitamente o valor da última contraproposta da IA; não é confirmação final da cotação.")
     intent: str = Field(min_length=1, max_length=80)
     reply: str = Field(min_length=1, max_length=1200)
     terms: ConversationTerms = Field(default_factory=ConversationTerms)
@@ -175,6 +177,10 @@ class ConversationTurn(StructuredResult):
 
 
 CONVERSATION_PROMPT = """
+NEGOCIAÇÃO POR TEXTO: na fase negotiation, extraia a resposta do fornecedor à última contraproposta.
+Marque offer_is_final somente quando o fornecedor disser que não pode melhorar ou que o preço é final.
+Marque accepted_counter_offer quando aceitar explicitamente o preço proposto pela IA; um sim nesta fase
+não é explicit_confirmation da cotação. Não invente preços, não conclua compra, preserve todos os termos.
 PAPEL FIXO: você é o COMPRADOR corporativo da empresa, falando DIRETAMENTE COM O FORNECEDOR para
 solicitar e esclarecer uma cotação. A mensagem atual vem do fornecedor. Você nunca é o consumidor
 comprador pedindo ao fornecedor para decidir a necessidade da empresa.
