@@ -1,4 +1,20 @@
 import 'reflect-metadata';
+import { setDefaultResultOrder } from 'node:dns';
+import { setDefaultAutoSelectFamily } from 'node:net';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+setDefaultResultOrder('ipv4first');
+setDefaultAutoSelectFamily(false);
+for (const envCandidate of [resolve(process.cwd(), '../.env'), resolve(process.cwd(), '.env')]) {
+  if (existsSync(envCandidate)) {
+    for (const line of readFileSync(envCandidate, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (m && process.env[m[1]] === undefined) {
+        process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
+      }
+    }
+  }
+}
 import { HistoryService } from './history';
 import { WhatsAppService, webhookAuth } from './whatsapp';
 import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Injectable, NotFoundException, Param, Post, Query, UnauthorizedException, Module, OnModuleInit, Inject } from '@nestjs/common';
@@ -90,10 +106,48 @@ function verifyJwt(token: string): Record<string, any> {
   );
   readonly history = new HistoryService(db, id => this.get(id));
   private turnQueues=new Map<string,Promise<any>>();
-  private callUrl(id: string) {
-    return `${(process.env.PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '')}/call/${id}`;
+  private cachedTunnelUrl: string | null = null;
+  private async refreshPublicUrl(): Promise<string> {
+    for (const port of [20241, 20242, 20243]) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/metrics`, { signal: AbortSignal.timeout(400) });
+        if (res.ok) {
+          const text = await res.text();
+          const m = text.match(/userHostname="(https:\/\/[a-z0-9-]+\.trycloudflare\.com)"/i);
+          if (m && m[1]) {
+            this.cachedTunnelUrl = m[1];
+            return m[1];
+          }
+        }
+      } catch {}
+    }
+    for (const envCandidate of [resolve(process.cwd(), '../.env'), resolve(process.cwd(), '.env')]) {
+      if (existsSync(envCandidate)) {
+        const content = readFileSync(envCandidate, 'utf8');
+        const m = content.match(/^\s*PUBLIC_APP_URL\s*=\s*(.+)\s*$/m);
+        if (m && m[1]) {
+          const val = m[1].trim().replace(/^['"]|['"]$/g, '');
+          if (val && !val.includes('localhost') && !val.includes('127.0.0.1')) {
+            this.cachedTunnelUrl = val;
+            return val;
+          }
+        }
+      }
+    }
+    return (this.cachedTunnelUrl || process.env.PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
   }
-  async onModuleInit(){this.backfillCompletedQuotes(); db.prepare("UPDATE tasks SET status='queued' WHERE status='dispatching'").run();let purchasePumpRunning=false;const runPurchasePump=()=>{if(purchasePumpRunning)return;purchasePumpRunning=true;void dispatchPurchaseOutbox(db,(...args)=>this.sendTelegram(...args)).catch(()=>{}).finally(()=>{purchasePumpRunning=false;});};const pump=()=>{this.whatsapp.pump();runPurchasePump();const staleTasks=db.prepare("SELECT * FROM tasks WHERE status='queued' AND created_at<=?").all(new Date(Date.now()-30000).toISOString()) as any[];for(const t of staleTasks)void this.dispatch(t);for(const d of db.prepare("SELECT * FROM telegram_delivery WHERE status='failed' AND attempts<3 AND (next_attempt_at IS NULL OR next_attempt_at<=?) AND source_update_id IS NULL AND id NOT IN (SELECT delivery_id FROM purchase_outbox WHERE delivery_id IS NOT NULL)").all(new Date().toISOString()) as any[])void this.retryTelegram(d);db.prepare("UPDATE telegram_updates SET status='exhausted' WHERE status='pending' AND attempts>=3").run();const pending=db.prepare("SELECT update_id,raw_update FROM telegram_updates WHERE status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?) ORDER BY received_at LIMIT 5").all(new Date().toISOString()) as any[];for(const u of pending){const now=new Date().toISOString();const claimed=db.prepare("UPDATE telegram_updates SET status='processing',attempts=attempts+1,retry_after=? WHERE update_id=? AND status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?)").run(new Date(Date.now()+40000).toISOString(),u.update_id,now);if(claimed.changes)void this.telegram(JSON.parse(u.raw_update),process.env.TELEGRAM_WEBHOOK_SECRET||'',true).catch(()=>{});}}; pump(); setInterval(pump,5000).unref(); }
+  private callUrl(id: string) {
+    const base = (
+      this.cachedTunnelUrl ||
+      (process.env.PUBLIC_APP_URL && !process.env.PUBLIC_APP_URL.includes('localhost')
+        ? process.env.PUBLIC_APP_URL
+        : null) ||
+      process.env.PUBLIC_APP_URL ||
+      'http://localhost:3000'
+    ).replace(/\/$/, '');
+    return `${base}/call/${id}`;
+  }
+  async onModuleInit(){this.backfillCompletedQuotes(); db.prepare("UPDATE tasks SET status='queued' WHERE status='dispatching'").run();db.prepare("UPDATE telegram_delivery SET status='failed',attempts=0,next_attempt_at=NULL WHERE status='uncertain' AND error LIKE '%ETIMEDOUT%'").run();let purchasePumpRunning=false;const runPurchasePump=()=>{if(purchasePumpRunning)return;purchasePumpRunning=true;void dispatchPurchaseOutbox(db,(...args)=>this.sendTelegram(...args)).catch(()=>{}).finally(()=>{purchasePumpRunning=false;});};const pump=()=>{this.whatsapp.pump();runPurchasePump();const staleTasks=db.prepare("SELECT * FROM tasks WHERE status='queued' AND created_at<=?").all(new Date(Date.now()-30000).toISOString()) as any[];for(const t of staleTasks)void this.dispatch(t);for(const d of db.prepare("SELECT * FROM telegram_delivery WHERE status='failed' AND attempts<3 AND (next_attempt_at IS NULL OR next_attempt_at<=?) AND source_update_id IS NULL AND id NOT IN (SELECT delivery_id FROM purchase_outbox WHERE delivery_id IS NOT NULL)").all(new Date().toISOString()) as any[])void this.retryTelegram(d);db.prepare("UPDATE telegram_updates SET status='exhausted' WHERE status='pending' AND attempts>=3").run();const pending=db.prepare("SELECT update_id,raw_update FROM telegram_updates WHERE status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?) ORDER BY received_at LIMIT 5").all(new Date().toISOString()) as any[];for(const u of pending){const now=new Date().toISOString();const claimed=db.prepare("UPDATE telegram_updates SET status='processing',attempts=attempts+1,retry_after=? WHERE update_id=? AND status='pending' AND attempts<3 AND (retry_after IS NULL OR retry_after<=?)").run(new Date(Date.now()+40000).toISOString(),u.update_id,now);if(claimed.changes)void this.telegram(JSON.parse(u.raw_update),process.env.TELEGRAM_WEBHOOK_SECRET||'',true).catch(()=>{});}}; pump(); setInterval(pump,5000).unref(); }
   list() { return db.prepare('SELECT * FROM requests ORDER BY created_at DESC').all().map((r: any) => this.expand(r)); }
   messages(id:string){this.get(id);return db.prepare('SELECT id,sender_type,content,created_at FROM conversation_messages WHERE request_id=? ORDER BY created_at,id').all(id);}
   private purchaseSimulationRow(id:string){return db.prepare('SELECT * FROM purchase_simulations WHERE request_id=? ORDER BY created_at DESC LIMIT 1').get(id)||null;}
@@ -105,7 +159,7 @@ function verifyJwt(token: string): Record<string, any> {
   private explicitYes(text:string){return /^(?:sim|confirmo|confirmado|confirmada|está correto|esta correto|correto|de acordo|pode confirmar|isso mesmo|tudo certo|sim[,!\s]+confirmo(?:\s+(?:tudo|essas condições|as condições|os termos|a cotação))?)[.!\s]*$/i.test(text.trim());}
   private async completeQuote(id:string,chat:string,source:string,sourceUpdateId?:number){const deliveryId=randomUUID();const changed=db.transaction(()=>{const req=db.prepare('SELECT quote_completion_state,status,quote_terms_snapshot FROM requests WHERE id=?').get(id) as any;const quote=db.prepare("SELECT * FROM quotes WHERE request_id=? AND (supplier_chat_id=? OR (supplier_chat_id IS NULL AND event_id GLOB 'telegram:*')) ORDER BY created_at DESC,rowid DESC LIMIT 1").get(id,chat) as any;if(!req||req.status==='concluida'||req.quote_completion_state!=='aguardando_confirmacao'||!quote||quote.unit_cents==null||quote.shipping_cents==null||quote.fees_cents==null||quote.lead_days==null||quote.available_qty==null||!quote.product_confirmed||!quote.destination_confirmed||!this.sameSnapshot(quote,req.quote_terms_snapshot))return false;const row=db.prepare("UPDATE requests SET status=CASE WHEN status='decidida' THEN status ELSE 'concluida' END,quote_completion_state='concluida',quote_final_message_id=?,completed_quote_id=?,version=version+1 WHERE id=? AND quote_completion_state='aguardando_confirmacao' AND status<>'concluida'").run(deliveryId,quote.id,id);if(!row.changes)return false;db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,error,created_at,message_text,source_update_id) VALUES(?,?,?,'sending',NULL,?,NULL,?)").run(deliveryId,id,chat,new Date().toISOString(),sourceUpdateId??null);return true;})();if(!changed)return {ok:true,duplicate:true};const sent=await this.sendTelegram(deliveryId,id,chat,`Obrigado. A cotação de ${source} foi confirmada e registrada; conversa encerrada.`);return {ok:true,completed:true,pending:!sent};}
   async reconcileConfirmation(id:string){const req=this.get(id);if(req.status==='concluida'||req.quote_completion_state==='concluida')return {ok:true,duplicate:true,status:'concluida'};const rows=db.prepare("SELECT sender_type,content,chat_id FROM conversation_messages WHERE request_id=? AND channel='telegram' ORDER BY created_at DESC,id DESC LIMIT 20").all(id).reverse() as any[];const quote=db.prepare("SELECT * FROM quotes WHERE request_id=? AND (event_id LIKE 'telegram:%' OR event_id LIKE 'recovery:%' OR event_id LIKE 'conversation:%') ORDER BY created_at DESC,rowid DESC LIMIT 1").get(id) as any;const summaries=rows.map((m:any,index:number)=>({m,index})).filter(({m}:any)=>m.sender_type==='AI'&&/Confirma essas condições\?/i.test(m.content));let pair:any=null;for(const {m:summary,index} of summaries){const nextSupplier=rows.slice(index+1).find((entry:any)=>entry.sender_type==='SUPPLIER');if(nextSupplier&&this.explicitYes(nextSupplier.content)){pair={summary,reply:nextSupplier,strict:true};break;}}if(!pair&&quote&&!this.draftMissing(quote,req.qty).length){const prompts=rows.map((m:any,index:number)=>({m,index})).filter(({m}:any)=>m.sender_type==='AI'&&/(?:cotação completa.*você confirma|Pode confirmar esses dados\?|Confirma essas condições\?)/i.test(m.content));for(const {m:summary,index} of prompts){const nextSupplier=rows.slice(index+1).find((entry:any)=>entry.sender_type==='SUPPLIER');if(nextSupplier&&this.explicitYes(nextSupplier.content)){pair={summary,reply:nextSupplier,strict:false};break;}}}if(!pair)return {ok:true,reconciled:false,reason:summaries.length?'explicit-confirmation-not-found':'summary-not-found'};if(!quote||this.draftMissing(quote,req.qty).length)return {ok:true,reconciled:false,reason:'quote-not-found'};const {summary,reply,strict}=pair;if(strict){const values=[quote.supplier,(quote.unit_cents/100).toFixed(2),(quote.shipping_cents/100).toFixed(2),(quote.fees_cents/100).toFixed(2),String(quote.lead_days),String(quote.available_qty)];if(!values.every(v=>summary.content.includes(v)))return {ok:true,reconciled:false,reason:'summary-terms-do-not-match'};}const chat=String(reply.chat_id||quote.supplier_chat_id||'');if(chat&&!quote.supplier_chat_id)db.prepare('UPDATE quotes SET supplier_chat_id=? WHERE id=?').run(chat,quote.id);db.prepare("UPDATE requests SET quote_completion_state='aguardando_confirmacao',quote_terms_snapshot=? WHERE id=? AND quote_completion_state IN ('coletando','aguardando_confirmacao')").run(this.termsSnapshot(quote),id);const desc=strict?summary.content.replace(/^Obrigado! Anotei:\s*/i,'').replace(/^Anotei para\s+/i,'').replace(/\s*Confirma essas condições\?\s*$/i,''):`${quote.supplier}; preço unitário R$ ${(quote.unit_cents/100).toFixed(2)}, frete R$ ${(quote.shipping_cents/100).toFixed(2)}, taxas R$ ${(quote.fees_cents/100).toFixed(2)}, prazo ${quote.lead_days} dias, disponibilidade ${quote.available_qty} unidades.`;return this.completeQuote(id,chat,desc);}
-  private async openingMessage(id:string){const req=db.prepare('SELECT product,qty,destination FROM requests WHERE id=?').get(id) as any;if(!req)return '';const callLink=this.callUrl(id);if(String(req.product||'').startsWith('Delivery ')){const history=db.prepare("SELECT sender_type,content FROM conversation_messages WHERE request_id=? AND channel='telegram' ORDER BY created_at DESC LIMIT 12").all(id).reverse();const missing_fields=['supplier','unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'];try{const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/conversation-turn`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({product:req.product,qty:req.qty,destination:req.destination,message:`Solicite uma cotação de ${req.product} para ${req.qty} unidades, com entrega em ${req.destination}.`,history,phase:'opening',terms:null,missing_fields}),signal:AbortSignal.timeout(35000)});if(!response.ok)throw new Error('opening unavailable');const result:any=await response.json();if(typeof result.reply==='string'&&result.reply.trim())return result.reply.trim();}catch{}}return `📞 *Ligação de Voz Nexo*\nOlá! Precisamos cotar ${req.product} (${req.qty} un., entrega no CEP ${req.destination}).\n\nPara atender agora em ligação de voz em tempo real, acesse:\n${callLink}\n\nSe preferir responder por texto, informe preço unitário, frete, taxas, prazo em dias e disponibilidade de estoque.`;}
+  private async openingMessage(id:string){await this.refreshPublicUrl();const req=db.prepare('SELECT product,qty,destination FROM requests WHERE id=?').get(id) as any;if(!req)return '';const callLink=this.callUrl(id);if(String(req.product||'').startsWith('Delivery ')){const history=db.prepare("SELECT sender_type,content FROM conversation_messages WHERE request_id=? AND channel='telegram' ORDER BY created_at DESC LIMIT 12").all(id).reverse();const missing_fields=['supplier','unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'];try{const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/conversation-turn`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({product:req.product,qty:req.qty,destination:req.destination,message:`Solicite uma cotação de ${req.product} para ${req.qty} unidades, com entrega em ${req.destination}.`,history,phase:'opening',terms:null,missing_fields}),signal:AbortSignal.timeout(35000)});if(!response.ok)throw new Error('opening unavailable');const result:any=await response.json();if(typeof result.reply==='string'&&result.reply.trim())return result.reply.trim();}catch{}}return `📞 *Ligação de Voz Nexo*\nOlá! Precisamos cotar ${req.product} (${req.qty} un., entrega no CEP ${req.destination}).\n\nPara atender agora em ligação de voz em tempo real, acesse:\n${callLink}\n\nSe preferir responder por texto, informe preço unitário, frete, taxas, prazo em dias e disponibilidade de estoque.`;}
   async contactSupplier(id:string,key?:string){const req=this.get(id);if(req.status==='decidida'&&!(this.purchaseSimulationRow(id) as any)?.status)throw new BadRequestException('Solicitação encerrada.');if(key&&(key.length>200||key.length<1))throw new BadRequestException('Idempotency-Key inválida.');if(key){const cached=db.prepare('SELECT result FROM contact_idempotency WHERE request_id=? AND idempotency_key=?').get(id,key) as any;if(cached)return JSON.parse(cached.result);}const allowed=(process.env.TELEGRAM_ALLOWED_CHAT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);if(!process.env.TELEGRAM_BOT_TOKEN||!allowed.length)throw new BadRequestException('Contato Telegram não está configurado.');const known=db.prepare('SELECT DISTINCT chat_id FROM telegram_outbound WHERE request_id=?').all(id).map((x:any)=>String(x.chat_id));const chats=known.length===1?known:known.length>1?[]:allowed.length===1?allowed:[];if(!chats.length)throw new BadRequestException('Informe uma conversa de fornecedor específica; há mais de um chat autorizado.');const text=await this.openingMessage(id);let sent=true;for(const chat of chats){const deliveryId=randomUUID();db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,error,created_at,message_text) VALUES(?,?,?,'sending',NULL,?,?)").run(deliveryId,id,chat,new Date().toISOString(),text);sent=!!(await this.sendTelegram(deliveryId,id,chat,text))&&sent;}const waContacts=db.prepare('SELECT number FROM whatsapp_contacts WHERE request_id=?').all(id) as any[];for(const c of waContacts){void this.whatsapp.sendWhatsApp(id,c.number,text,`invite:${id}`).catch(()=>{});}const result={ok:sent,request_id:id,status:sent?'sent':'uncertain',call_url:this.callUrl(id)};if(key)db.prepare('INSERT OR IGNORE INTO contact_idempotency VALUES(?,?,?,?)').run(id,key,JSON.stringify(result),new Date().toISOString());return result;}
 
   /**
@@ -170,6 +224,7 @@ function verifyJwt(token: string): Record<string, any> {
   }
 
   private async telegramNotifyCall(requestId: string, product: string, phone: string) {
+    await this.refreshPublicUrl();
     const req = db.prepare('SELECT product, qty, destination FROM requests WHERE id=?').get(requestId) as any;
     const callLink = this.callUrl(requestId);
     const text = phone
@@ -481,7 +536,13 @@ function verifyJwt(token: string): Record<string, any> {
       target_price: targetPrice,
       supplier_id: waContact?.supplier_id || 'fornecedor-voz',
       supplier_name: waContact?.name || 'Fornecedor Voz',
-      vapi_public_key: process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || process.env.VAPI_PUBLIC_KEY || process.env.VAPI_API_KEY || null,
+      vapi_public_key:
+        process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ||
+        process.env.VAPI_PUBLIC_KEY ||
+        (process.env.VAPI_API_KEY === '453711c4-6d8e-4e58-8dd0-b651fe514e20'
+          ? 'ca4665bc-9cb9-4ecd-9c36-187f75a414dd'
+          : process.env.VAPI_API_KEY) ||
+        null,
       assistant_id: process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID || process.env.VAPI_ASSISTANT_ID || null,
     };
   }
@@ -533,7 +594,7 @@ function verifyJwt(token: string): Record<string, any> {
       let cause:any=error,code='UNKNOWN';const seen=new Set<any>();
       while(cause&&typeof cause==='object'&&!seen.has(cause)){seen.add(cause);if(typeof cause.code==='string'&&/^[A-Z][A-Z0-9_]{1,63}$/.test(cause.code))code=cause.code;cause=cause.cause;}
       const name=error instanceof Error&&/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(error.name)?error.name:'Error';
-      const safe=['ECONNREFUSED','ENOTFOUND','EAI_AGAIN','UND_ERR_CONNECT_TIMEOUT'].includes(code);
+      const safe=['ECONNREFUSED','ENOTFOUND','EAI_AGAIN','UND_ERR_CONNECT_TIMEOUT','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH'].includes(code);
       recordFailure(safe?'failed':'uncertain',safe?`Telegram conexão não estabelecida (${name}; cause=${code}); ${attempts<3?'nova tentativa agendada':'limite de 3 tentativas atingido'}.`:`Envio Telegram sem confirmação (${name}; cause=${code}); não será repetido automaticamente para evitar mensagem duplicada.`);
       return false;
     }

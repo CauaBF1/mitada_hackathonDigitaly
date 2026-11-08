@@ -93,9 +93,7 @@
               },
               "supplier_confirmed": {
                 "type": "boolean",
-                "enum": [
-                  true
-                ]
+                "description": "True when the supplier explicitly confirms closing the quotation on the call."
               }
             },
             "required": [

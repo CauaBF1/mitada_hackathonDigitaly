@@ -197,7 +197,7 @@ async function dashboard() {
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const endpoint = (await context.params).path.join("/");
-  const isPublicCallSession = /^call-session\/[0-9a-f-]{36}(?:\/end)?$/i.test(endpoint);
+  const isPublicCallSession = /^(?:call-session\/[0-9a-f-]{36}(?:\/end)?|webhook\/voice)$/i.test(endpoint);
   const hostHeader = request.headers.get("host");
   let requestHostname = request.nextUrl.hostname;
   if (hostHeader) {
@@ -205,7 +205,29 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   }
   if (!isPublicCallSession && !["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
   const origin = request.headers.get("origin");
-  if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
+  if (origin && endpoint !== "webhook/voice") { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
+
+  if (endpoint === "webhook/voice" && request.method === "POST") {
+    try {
+      const secret =
+        request.headers.get("x-voice-webhook-secret") ||
+        request.headers.get("x-vapi-secret") ||
+        process.env.VOICE_WEBHOOK_SECRET ||
+        process.env.INTERNAL_API_TOKEN ||
+        "";
+      const response = await upstream("webhook/voice", {
+        method: "POST",
+        headers: secret ? { "x-voice-webhook-secret": secret } : {},
+        body: await request.text(),
+      });
+      return new NextResponse(await response.text(), {
+        status: response.status,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    } catch {
+      return json({ detail: "Webhook de voz temporariamente indisponível." }, 503);
+    }
+  }
 
   const callSession = endpoint.match(/^call-session\/([0-9a-f-]{36})(?:\/(end))?$/i);
   if (callSession && request.method === "GET" && !callSession[2]) {

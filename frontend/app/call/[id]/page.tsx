@@ -196,10 +196,14 @@ export default function SupplierWebCallPage() {
       return;
     }
 
-    const publicKey =
+    const rawPubKey =
       process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ||
       session.vapi_public_key ||
       "";
+    const publicKey =
+      rawPubKey === "453711c4-6d8e-4e58-8dd0-b651fe514e20"
+        ? "ca4665bc-9cb9-4ecd-9c36-187f75a414dd"
+        : rawPubKey;
     const assistantId =
       process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID ||
       session.assistant_id ||
@@ -292,7 +296,7 @@ export default function SupplierWebCallPage() {
       });
 
       vapi.on("error", (err: any) => {
-        console.error("Vapi WebRTC error:", err);
+        console.warn("Vapi WebRTC error:", err);
         setAudioMode("idle");
         void notifyCallEnd({
           status: "failed",
@@ -318,12 +322,21 @@ export default function SupplierWebCallPage() {
       const destination = session.destination;
       const target_price = session.target_price || "0.00";
 
-      const assistantOverrides = {
+      const webhookOrigin =
+        typeof window !== "undefined" &&
+        window.location.origin &&
+        !window.location.origin.includes("localhost") &&
+        !window.location.origin.includes("127.0.0.1")
+          ? `${window.location.origin}/api/webhook/voice`
+          : undefined;
+
+      const assistantOverrides: Record<string, any> = {
         metadata: {
           request_id: id,
           supplier_id: supplierId || "fornecedor-voz",
           supplier_name: supplierName || "Fornecedor Voz",
         },
+        ...(webhookOrigin ? { server: { url: webhookOrigin, timeoutSeconds: 20 } } : {}),
         variableValues: {
           purchase_context: JSON.stringify({
             request_id: id,
@@ -342,7 +355,7 @@ export default function SupplierWebCallPage() {
         callIdRef.current = callInfo.id;
       }
     } catch (err: any) {
-      console.error("Failed to start Vapi call:", err);
+      console.warn("Failed to start Vapi call:", err);
       setAudioMode("idle");
       await notifyCallEnd({
         status: "failed",
