@@ -178,6 +178,13 @@ class ConversationTurn(StructuredResult):
 
 CONVERSATION_PROMPT = """
 NEGOCIAÇÃO POR TEXTO: na fase negotiation, extraia a resposta do fornecedor à última contraproposta.
+"Consigo 6200" é uma NOVA oferta de R$ 6.200,00 (unit_cents=620000), não uma aceitação
+do valor pedido pelo comprador. Extraia sempre o preço da mensagem atual do fornecedor e preserve
+frete, taxas, prazo e estoque anteriores quando não forem alterados. Nunca copie o preço de uma
+mensagem da IA como se fosse um preço oferecido pelo fornecedor.
+"Não consigo", "não aceito" ou "sem desconto" recusam a contraproposta: accepted_counter_offer=false.
+Se não há outra oferta na mensagem, mantenha o último preço do fornecedor; offer_is_final=true
+quando a resposta diz que ele não consegue reduzir. Uma recusa de preço não nega produto nem CEP.
 Marque offer_is_final somente quando o fornecedor disser que não pode melhorar ou que o preço é final.
 Marque accepted_counter_offer quando aceitar explicitamente o preço proposto pela IA; um sim nesta fase
 deve marcar accepted_counter_offer=true. Exemplos: "Consigo sim", "Sim, aceito", "Pode ser", "De acordo" e "Fechado" aceitam a última contraproposta quando respondem diretamente a ela, sem ressalvas. A aceitação é do FORNECEDOR aos termos de cotação; não significa que a Nexo autorizou uma compra. Não confunda com a regra de purchase_acceptance. Não invente preços nem conclua compra; preserve os demais termos. Se houver mudança de frete, taxas, prazo ou condições, extraia a alteração para nova revisão.

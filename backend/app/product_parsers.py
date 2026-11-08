@@ -89,6 +89,10 @@ def extracted_product_nodes(text: str, url: str, extract_depth: str = 'basic') -
     if cutoff and cutoff.start() > 40:
         primary_block = primary_block[:cutoff.start()]
     primary_block = primary_block[:3500]
+    # Extract returns Markdown, and merchants can join the cash price,
+    # percentage badge and payment label without spaces (e.g. KaBuM!).
+    # Remove presentation markers while keeping the currency and price context.
+    primary_block = primary_block.replace('**', '').replace('\xa0', ' ')
 
     # 1. Check unavailability
     if re.search(
@@ -126,7 +130,7 @@ def extracted_product_nodes(text: str, url: str, extract_depth: str = 'basic') -
 
     # Pattern A: R$ X.XXX,XX à vista / no Pix / no boleto / em 1x
     for m in re.finditer(
-        r'R\$\s*([\d.]+,\d{2})\s*(?:\([^)\n]{0,35}\)\s*)?(?:à\s+vista|no\s+pix|via\s+pix|no\s+boleto|em\s+1x\b)',
+        r'R\$\s*([\d.]+,\d{2})\s*(?:[-−]\s*\d{1,2}(?:[,.]\d{1,2})?\s*%\s*)?(?:\([^)\n]{0,35}\)\s*)?(?:à\s+vista|no\s+pix|via\s+pix|no\s+boleto|em\s+1x\b)',
         primary_block,
         re.I,
     ):

@@ -118,6 +118,24 @@ try {
   assert.match(sent.at(-1), /conversa encerrada/);
   assert.doesNotMatch(sent.at(-1), /Confirma essas condições\?/);
   assert.doesNotMatch(sent.at(-1), /pedido|pagamento/i);
+  // Tavily can finish after a voice/text negotiation. Keep the closed supplier
+  // quote intact, but persist market offers and make the dashboard refreshable.
+  const closedSnapshot={status:request.status,state:request.quote_completion_state,quote:request.completed_quote_id,snapshot:db.prepare('SELECT quote_terms_snapshot FROM requests WHERE id=?').get(normal.id).quote_terms_snapshot};
+  const task=db.prepare('SELECT id FROM tasks WHERE request_id=?').get(normal.id);
+  const research={status:'completed',execution_version:request.execution_version,quotes:[{event_id:'late-tavily',supplier:'Loja de mercado',unit_cents:4500,source_url:'https://store.example/product'}],agent_notes:{query:'Cotação confirmação'}};
+  const callbackHeaders={authorization:`Bearer ${token}`};
+  assert.equal((await json(`/tasks/${task.id}/result`,'POST',{...research,execution_version:-1},callbackHeaders)).body.ignored,'stale');
+  assert.equal((await json(`/tasks/${task.id}/result`,'POST',research,callbackHeaders)).status,200);
+  const afterSearch=(await json(`/requests/${normal.id}`)).body;
+  assert.ok(afterSearch.quotes.some(q=>q.event_id==='late-tavily'||q.source_url==='https://store.example/product'));
+  assert.equal(afterSearch.status,closedSnapshot.status);
+  assert.equal(afterSearch.quote_completion_state,closedSnapshot.state);
+  assert.equal(afterSearch.completed_quote_id,closedSnapshot.quote);
+  assert.equal(db.prepare('SELECT quote_terms_snapshot FROM requests WHERE id=?').get(normal.id).quote_terms_snapshot,closedSnapshot.snapshot);
+  assert.equal(afterSearch.decision,null);
+  assert.ok(afterSearch.version>request.version);
+  assert.equal(sent.length,beforeRestartSends+1,'late research cannot send new supplier messages');
+  assert.equal((await json(`/tasks/${task.id}/result`,'POST',research,callbackHeaders)).body.duplicate,true);
   const afterFinalSends = sent.length;
   assert.deepEqual((await json('/webhook/telegram', 'POST', yesUpdate, { 'x-telegram-bot-api-secret-token': 'quote-webhook-secret' })).body, { ok: true, duplicate: true });
   assert.equal(sent.length, afterFinalSends, 'replayed confirmation update does not send again');

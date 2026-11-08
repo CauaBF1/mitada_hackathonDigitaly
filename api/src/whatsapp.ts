@@ -717,12 +717,12 @@ export class WhatsAppService {
         const missing = fields.filter(([key]) => merged[key] == null || merged[key] === false).map(([, label]) => label);
         const pending = Array.isArray(parsed.pending) ? parsed.pending.filter((p: unknown) => typeof p === 'string' && missing.includes(p)) : [];
         const remaining = [...new Set([...pending, ...missing])];
-        const accepted=this.negotiation.accept(req.id,'whatsapp',row.number,phase==='negotiation'&&parsed.accepted_counter_offer===true,phase==='negotiation'?row.content:'');
+        const accepted=this.negotiation.accept(req.id,'whatsapp',row.number,phase==='negotiation'&&parsed.accepted_counter_offer===true,phase==='negotiation'?row.content:'',parsed.unit_cents);
         if(accepted!==null)merged.unit_cents=accepted;
         const unchanged=prior&&['unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'].every(k=>prior[k]===merged[k]);
         const sameOtherTerms=prior&&['shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed','payment_terms','valid_until'].every(k=>(prior[k]??null)===(merged[k]??null));
         const confirmed=!remaining.length&&((accepted!==null&&sameOtherTerms)||(prior?.awaiting_confirmation&&unchanged&&(parsed.explicit_confirmation===true||/^(?:sim|confirmo|confirmado|correto|de acordo)[.!\s]*$/i.test(row.content.trim()))));
-        const step=!remaining.length&&!confirmed?this.negotiation.turn(req,'whatsapp',row.number,merged,parsed.offer_is_final===true,`${id}:${row.revision||0}`):null;
+        const step=!remaining.length&&!confirmed?this.negotiation.turn(req,'whatsapp',row.number,merged,parsed.offer_is_final===true,`${id}:${row.revision||0}`,row.content):null;
         merged.awaiting_confirmation=!!step&&!step.negotiating;
         answer = confirmed ? 'Obrigado. Cotação confirmada e registrada; a decisão de compra depende de aprovação humana.' : step ? step.reply : remaining.length ? `Obrigado! Para completar a cotação, pode me informar ${remaining.join(', ')}?` : 'Obrigado! Sua cotação foi registrada para comparação.';
         this.db.transaction(() => {

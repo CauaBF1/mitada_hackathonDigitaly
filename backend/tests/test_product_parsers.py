@@ -192,6 +192,35 @@ def test_tavily_extract_rejects_installments_third_party_seller_wrong_variant_an
     assert not same_product(query, 'Barra de LED TV Hisense 43 Polegadas 4K')
 
 
+@pytest.mark.parametrize('price_line', [
+    'R$\xa0175,99-15%à vista no PIX',
+    '**R$ 175,99** -15% **à vista no PIX**',
+    'R$ 175,99 − 15,5% à vista no PIX',
+])
+def test_tavily_kabum_cash_price_with_adjacent_discount_badge(price_line):
+    # Layout reproduced from a real Tavily Extract response for this product.
+    url = 'https://www.kabum.com.br/produto/495499/teclado-pebble-keys-2-k380s'
+    content = ('# Teclado Sem Fio Logitech Pebble Keys 2 K380s\n'
+               'Vendido e entregue por:**KaBuM!**\n\nR$\xa0258,81\n\n'
+               f'{price_line}\n\n**8x R$\xa025,88** s/ juros\n'
+               '## Produtos relacionados\nMouse Logitech\nPor R$ 39,90 à vista no PIX')
+    offer = parse_extracted_product(content, url, 'Teclado pebble keys 2')
+    assert offer.price == Decimal('175.99')
+    assert offer.extraction_method == 'tavily_extract/basic'
+    assert offer.availability == 'Unknown'
+
+
+@pytest.mark.parametrize('price_line', [
+    '**8x R$ 25,88** à vista no PIX',
+    'Desconto R$ 25,88 -15% à vista no PIX',
+    'Frete R$ 25,88 -15% à vista no PIX',
+    'De R$ 258,81 -15% à vista no PIX',
+])
+def test_tavily_discount_badge_does_not_make_non_total_amount_a_cash_price(price_line):
+    with pytest.raises(ScrapingError):
+        parse_extracted_product(f'# {NAME}\n{price_line}', URL, NAME)
+
+
 def test_discover_differentiates_local_filters_robots_skips_and_remote_blocks_while_preserving_valid_offers():
     valid_url = 'https://store.example/prod/mouse-m170'
     robots_url = 'https://robots-blocked.example/prod/mouse-m170'

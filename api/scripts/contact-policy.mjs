@@ -24,6 +24,22 @@ policy.turn({...req,id:'affirmative'},'whatsapp','supplier',terms,false,'1');
 for(const message of ['Consigo sim','Consigo ss','Sim','Aceito a contraproposta','De acordo'])assert.equal(policy.accept('affirmative','whatsapp','supplier',false,message),8000);
 for(const message of ['Não consigo','Sim, mas o frete muda','Sim, temos estoque','Talvez'])assert.equal(policy.accept('affirmative','whatsapp','supplier',false,message),null);
 assert.equal(targetUnitCents({quotes:[]},10001),8001,'integer-cent rounding');
+for(const channel of ['whatsapp','telegram']) {
+ const r={id:`counter-${channel}`,qty:1,quotes:[]};
+ const initial={...terms,unit_cents:715000};
+ assert.match(policy.turn(r,channel,'seller',initial,false,'1').reply,/5720.00/);
+ const revised={...initial,unit_cents:620000};
+ const counter=policy.turn(r,channel,'seller',revised,false,'2','Consigo 6200');
+ assert.match(counter.reply,/6200.00.*5960.00/,'acknowledge new supplier price and change buyer counteroffer');
+ assert.equal(policy.accept(r.id,channel,'seller',true,'Consigo 6200'),null,'a new amount never accepts the previous buyer price');
+ assert.equal(policy.accept(r.id,channel,'seller',true,'Consigo 6200',620000),null,'typed acceptance cannot replace a different supplier counteroffer');
+ assert.equal(policy.accept(r.id,channel,'seller',true,'Aceito R$5960',596000),596000,'explicit acceptance at the current price is supported');
+ assert.equal(policy.accept(r.id,channel,'seller',false,'Consigo sim'),596000,'acceptance uses the latest counteroffer');
+ const refusal=policy.turn(r,channel,'seller',revised,false,'3','Não consigo');
+ assert.equal(refusal.negotiating,false);
+ assert.match(refusal.reply,/respeitar seu limite.*6200.00.*Confirma essas condições/);
+ assert.equal(policy.state(r.id,channel,'seller').finished,1);
+}
 const calls=[];let forceDns=false;
 const fake=createServer(async(req,res)=>{
  let raw='';for await(const chunk of req)raw+=chunk;

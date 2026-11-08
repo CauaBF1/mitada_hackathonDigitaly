@@ -35,7 +35,7 @@ const fake = createServer(async (req, res) => {
   if(providerCall && req.url===`/call/${providerCall.id}`){res.end(JSON.stringify(providerCall));return;}
   if(req.url==='/conversation-turn'){
     turns.push(body);if(parseDelay)await new Promise(r=>setTimeout(r,parseDelay));
-    const terms=body.terms||{supplier:'Fornecedor de teste',unit_cents:10000,shipping_cents:0,fees_cents:0,lead_days:7,available_qty:10,product_confirmed:true,destination_confirmed:true};
+    const terms={...(body.terms||{supplier:'Fornecedor de teste',unit_cents:10000,shipping_cents:0,fees_cents:0,lead_days:7,available_qty:10,product_confirmed:true,destination_confirmed:true}),...(body.message==='Consigo 90'?{unit_cents:9000}:{})};
     res.end(JSON.stringify({intent:'quotation',reply:'Termos recebidos.',terms,explicit_confirmation:body.phase==='quote_confirmation',terms_changed:false,purchase_acceptance:'unclear',accepted_counter_offer:body.message==='Aceito a contraproposta',offer_is_final:body.message==='Este é o preço final'}));return;
   }
   res.writeHead(404).end('{}');
@@ -155,6 +155,21 @@ try {
   await reply(responding,'response-3','Confirmo');request=(await json(`/requests/${responding}`)).body;
   assert.equal(request.quote_completion_state,'concluida');assert.equal(request.quotes.find(q=>q.id===request.completed_quote_id).unit_cents,8000);
   assert.ok((await json(`/requests/${responding}/messages`)).body.some(m=>m.channel==='whatsapp'&&m.sender_type==='SUPPLIER'));
+  for(const ending of ['Não consigo','Consigo sim']) {
+    const negotiation=await create(`Contraproposta ${ending}`);
+    await reply(negotiation,`initial-${ending}`,'Preço 100, frete e taxas zero, 7 dias, estoque 10.');
+    await reply(negotiation,`counter-${ending}`,'Consigo 90');
+    assert.match(waSends.at(-1).text,/90.00.*85.00/);
+    await reply(negotiation,`ending-${ending}`,ending);
+    if(ending==='Não consigo') {
+      assert.match(waSends.at(-1).text,/respeitar seu limite.*90.00.*Confirma essas condições/);
+      await reply(negotiation,'confirm-refused-price','Confirmo');
+    }
+    const completed=(await json(`/requests/${negotiation}`)).body;
+    assert.equal(completed.quote_completion_state,'concluida');
+    assert.equal(completed.quotes.find(q=>q.id===completed.completed_quote_id).unit_cents,ending==='Não consigo'?9000:8500);
+    assert.equal(flow(negotiation).next_check_at,null,'supplier conversation keeps Telegram fallback cancelled');
+  }
   const recoveryId=await create('Recuperação de aceitação');
   await reply(recoveryId,'recover-first','Preço 100, frete zero, taxas zero, 7 dias e estoque 10.');
   await reply(recoveryId,'recover-last','Mensagem que exige reprocessamento');
