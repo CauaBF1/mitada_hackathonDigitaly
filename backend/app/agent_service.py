@@ -561,7 +561,8 @@ async def deliver_callback(payload: dict, output: dict) -> bool:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(url, json=output, headers={"authorization": f"Bearer {secret}"})
-        return response.is_success
+        # Deleted Nest requests have no callback target; do not block all later research tasks.
+        return response.is_success or response.status_code in (404, 410)
     except (httpx.HTTPError, RuntimeError):
         return False
 

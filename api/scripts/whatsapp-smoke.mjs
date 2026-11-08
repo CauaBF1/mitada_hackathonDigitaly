@@ -9,6 +9,9 @@ const Database = createRequire(import.meta.url)('better-sqlite3');
 const dir = mkdtempSync(join(tmpdir(), 'nexo-whatsapp-'));
 const dbPath = join(dir, 'business.sqlite');
 const sends = [], interpretations = [];
+const voiceAttempts = [];
+let callMode = 'reject', callEnded = false;
+const fakeCallId = '00112233-4455-6677-8899-aabbccddeeff';
 let sendMode = 'ok', parseMode = 'full', parseFailures = 0;
 const full = { unit_cents: 5000, shipping_cents: 100, fees_cents: 0, lead_days: 2, available_qty: 5, product_confirmed: true, destination_confirmed: true, pending: [] };
 const fake = createServer(async (req, res) => {
@@ -16,6 +19,15 @@ const fake = createServer(async (req, res) => {
   const body = raw ? JSON.parse(raw) : {};
   res.setHeader('content-type', 'application/json');
   if (req.url === '/tasks') { res.writeHead(202).end('{"accepted":true}'); return; }
+  if (req.url === '/voice/call') {
+    assert.equal(req.headers.authorization,'Bearer internal-test'); voiceAttempts.push(body);
+    if (callMode==='reject') { res.writeHead(502).end('{"detail":"Provider rejected call"}'); return; }
+    res.writeHead(201).end(JSON.stringify({call_id:fakeCallId,status:'queued',provider:'vapi'})); return;
+  }
+  if (req.url === `/voice/call/${fakeCallId}`) {
+    assert.equal(req.headers.authorization,'Bearer internal-test');
+    res.end(JSON.stringify({call_id:fakeCallId,status:callEnded?'ended':'ringing',ended_reason:'customer-did-not-answer',request_id:voiceAttempts.at(-1).request_id,supplier_id:'teste-whatsapp'})); return;
+  }
   if (req.url === '/interpret-quote') {
     assert.equal(req.headers.authorization, 'Bearer internal-test'); interpretations.push(body);
     if (parseFailures-- > 0) { res.writeHead(503).end('{}'); return; }
@@ -38,11 +50,12 @@ const portServer = createServer(); await new Promise(resolve => portServer.liste
 const port = portServer.address().port; await new Promise(resolve => portServer.close(resolve));
 const base = `http://127.0.0.1:${port}`;
 let child, logs = '', db;
-async function start() {
+async function start(testSupplierNumber = '') {
   child = spawn(process.execPath, ['dist/main.js'], { stdio: ['ignore','pipe','pipe'], env: {
     ...process.env, PORT: String(port), DATABASE_PATH: dbPath, AGENT_URL: fakeUrl, INTERNAL_API_TOKEN: 'internal-test',
     WHATSAPP_API_URL: fakeUrl, WHATSAPP_API_KEY: 'evolution-test', WHATSAPP_INSTANCE_NAME: 'nexo', WHATSAPP_WEBHOOK_SECRET: 'wa-secret',
     VOICE_WEBHOOK_SECRET: 'voice-secret', TELEGRAM_BOT_TOKEN: '',
+    WHATSAPP_TEST_SUPPLIER_NUMBER: testSupplierNumber,
   } });
   child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
   for (let i = 0; i < 100; i++) {
@@ -89,8 +102,13 @@ try {
   const loop = inbound('from-me'); loop.data.key.fromMe = true;
   assert.equal((await wa(loop)).body.ignored,'from-me');
   const group = inbound('group'); group.data.key.remoteJid='123@g.us'; assert.equal((await wa(group)).body.ignored,'unsupported-sender');
+  group.data.key.remoteJidAlt='5511999999999@s.whatsapp.net'; assert.equal((await wa(group)).body.ignored,'unsupported-sender');
+  const lid = inbound('lid-missing-phone'); lid.data.key.remoteJid='123456789@lid';
+  assert.equal((await wa(lid)).body.ignored,'unsupported-sender');
+  lid.data.key.remoteJidAlt='123456789@lid'; assert.equal((await wa(lid)).body.ignored,'unsupported-sender');
   assert.equal((await wa(inbound('stranger','5511888888888'))).body.ignored,'unknown-contact');
-  parseMode='partial'; await wa(inbound('partial'));
+  const partial = inbound('partial'); partial.data.key.remoteJid='123456789@lid'; partial.data.key.remoteJidAlt='5511999999999@s.whatsapp.net';
+  parseMode='partial'; assert.equal((await wa(partial)).body.status,'processed');
   let current = (await json(`/requests/${id}`)).body;
   assert.equal(current.status,'comparação'); assert.equal(current.quotes.length,1); assert.equal(current.quotes[0].eligible,false);
   assert.match(sends.at(-1).text,/frete, taxas, prazo, disponibilidade/); assert.doesNotMatch(sends.at(-1).text,/preço unitário/);
@@ -135,6 +153,44 @@ try {
   await json(`/requests/${second}/decision`,{quote_id:chosen.id,version:current.version});
   assert.equal((await voice(second,'after-decision')).body.ignored,'decided');
   assert.equal((await wa(inbound('after-decision','5511999999999',parent))).body.ignored,'decided');
+  // A configured test supplier is attached to every new request, without sending on creation.
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE supplier_id='teste-whatsapp'").get().n,0);
+  await stop(); await start('+5517991636725');
+  const sendsBeforeDefault = sends.length;
+  const defaults = [await create(), await create()];
+  assert.equal(sends.length, sendsBeforeDefault);
+  for (const requestId of defaults) {
+    assert.equal(db.prepare("SELECT number FROM whatsapp_contacts WHERE request_id=? AND supplier_id='teste-whatsapp'").get(requestId).number,'5517991636725');
+    assert.equal((await voice(requestId,`default-${requestId}`,'no-answer',{},'teste-whatsapp')).body.fallback.status,'sent');
+    assert.equal(sends.at(-1).number,'5517991636725');
+  }
+  assert.equal((await wa(inbound('default-ambiguous','5517991636725'))).body.ignored,'ambiguous-request');
+  console.log('PASS default test supplier: opt-in, every new request, normalized number, no implicit send, fallback recipient and ambiguous reply protection');
+  const completeResearch = async requestId => {
+    const task=db.prepare('SELECT id FROM tasks WHERE request_id=?').get(requestId);
+    const result=await json(`/tasks/${task.id}/result`,{status:'completed',quotes:[],execution_version:1},{authorization:'Bearer internal-test'});
+    assert.equal(result.status,200);
+  };
+  const automatic = await create(); const beforeAuto=sends.length;
+  assert.equal(voiceAttempts.length,0,'must finish research before calling');
+  await completeResearch(automatic);
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(automatic)?.status==='done');
+  assert.equal(voiceAttempts.length,1); assert.equal(voiceAttempts[0].phone_number,'+5517991636725');
+  assert.equal(sends.length,beforeAuto+1); assert.equal(sends.at(-1).number,'5517991636725');
+  assert.match(db.prepare('SELECT error FROM whatsapp_contact_flow WHERE request_id=?').get(automatic).error,/HTTP 502/);
+  await completeResearch(automatic); await stop(); await start('+5517991636725');
+  assert.equal(voiceAttempts.length,1); assert.equal(sends.length,beforeAuto+1);
+  callMode='accept'; const waiting=await create(); await completeResearch(waiting);
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(waiting)?.status==='waiting');
+  assert.equal(voiceAttempts.length,2); const waitingSends=sends.length;
+  await stop(); await start('+5517991636725');
+  assert.equal(voiceAttempts.length,2,'restart must not redial'); assert.equal(sends.length,waitingSends,'do not send before call ends');
+  callEnded=true; db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=NULL WHERE request_id=?').run(waiting);
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(waiting)?.status==='done');
+  assert.equal(sends.length,waitingSends+1); assert.equal(voiceAttempts.length,2);
+  assert.equal((await fetch(`${base}/requests/${waiting}`,{method:'DELETE'})).status,200);
+  assert.equal(db.prepare('SELECT 1 FROM whatsapp_contact_flow WHERE request_id=?').get(waiting),undefined);
+  console.log('PASS automatic contact: research first, real voice request, rejected-call fallback, accepted-call polling, restart idempotency and deletion');
   console.log('PASS WhatsApp HTTP: auth, voice statuses/Vapi, dedupe, partial quotes/pending, pre-price state, supplier isolation, ambiguous replies, restart/retry/exhaustion, uncertain delivery, immutable decisions');
 } catch(e) { console.error(e); console.error(logs); process.exitCode=1; }
 finally { if(child?.exitCode===null) await stop(); db?.close(); await new Promise(resolve=>fake.close(resolve)); rmSync(dir,{recursive:true,force:true}); }

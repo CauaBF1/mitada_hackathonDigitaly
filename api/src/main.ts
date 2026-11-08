@@ -157,7 +157,7 @@ function verifyJwt(token: string): Record<string, any> {
       db.prepare('DELETE FROM telegram_updates WHERE update_id IN (SELECT update_id FROM conversation_messages WHERE request_id=? AND update_id IS NOT NULL)').run(id);
       // Ordem respeita as foreign keys (outbox -> simulações -> cotações -> solicitação).
       for (const table of ['purchase_outbox', 'purchase_simulations', 'conversation_drafts', 'reputation_cache', 'quotes', 'tasks', 'telegram_delivery', 'telegram_outbound', 'contact_idempotency',
-        'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
+        'whatsapp_contact_flow', 'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
         db.prepare(`DELETE FROM ${table} WHERE request_id=?`).run(id);
       }
       db.prepare('DELETE FROM requests WHERE id=?').run(id);
@@ -177,7 +177,7 @@ function verifyJwt(token: string): Record<string, any> {
   private async dispatch(t:any){
     const claimed=db.prepare("UPDATE tasks SET status='dispatching' WHERE id=? AND status='queued'").run(t.id);if(!claimed.changes)return;
     const req=db.prepare('SELECT version,execution_version,status FROM requests WHERE id=?').get(t.request_id) as any;if(!req||req.status==='decidida'){db.prepare("UPDATE tasks SET status='completed' WHERE id=?").run(t.id);return;}let version=req.execution_version;if(req.status==='recebida'){version=req.execution_version+1;const moved=db.prepare("UPDATE requests SET status='pesquisando',version=version+1,execution_version=? WHERE id=? AND status='recebida'").run(version,t.request_id);if(!moved.changes){db.prepare("UPDATE tasks SET status='queued' WHERE id=?").run(t.id);return;}}else if(req.status!=='pesquisando'){db.prepare("UPDATE tasks SET status='completed' WHERE id=?").run(t.id);return;}
-    try {const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/tasks`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({task_id:t.id,request_id:t.request_id,execution_version:version,...JSON.parse(t.payload)}),signal:AbortSignal.timeout(10000)}); if(!response.ok)throw new Error(`agent HTTP ${response.status}`); db.prepare("UPDATE tasks SET status='accepted' WHERE id=? AND status='dispatching'").run(t.id); await this.telegramNotify(t.request_id);}
+    try {const response=await fetch(`${process.env.AGENT_URL||'http://agents:8000'}/tasks`,{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},body:JSON.stringify({task_id:t.id,request_id:t.request_id,execution_version:version,...JSON.parse(t.payload)}),signal:AbortSignal.timeout(10000)}); if(!response.ok)throw new Error(`agent HTTP ${response.status}`); db.prepare("UPDATE tasks SET status='accepted' WHERE id=? AND status='dispatching'").run(t.id); if(!process.env.WHATSAPP_TEST_SUPPLIER_NUMBER?.trim())await this.telegramNotify(t.request_id);}
     catch {db.prepare("UPDATE tasks SET status='queued' WHERE id=? AND status='dispatching'").run(t.id);}
   }
   private async telegramNotify(id:string){if(!this.exists(id))return;const chats=(process.env.TELEGRAM_ALLOWED_CHAT_IDS||'').split(',').map(s=>s.trim()).filter(Boolean);if(!process.env.TELEGRAM_BOT_TOKEN||!chats.length)return;const text=await this.openingMessage(id);for(const chat of chats){if(!this.exists(id))return;if(db.prepare("SELECT 1 FROM telegram_delivery WHERE request_id=? AND chat_id=? AND status IN ('sent','uncertain','sending')").get(id,chat))continue;const deliveryId=randomUUID();db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,error,created_at,message_text) VALUES(?,?,?,'sending',NULL,?,?)").run(deliveryId,id,chat,new Date().toISOString(),text);await this.sendTelegram(deliveryId,id,chat,text);}}
@@ -220,6 +220,7 @@ function verifyJwt(token: string): Record<string, any> {
     const taskId = randomUUID();
     db.transaction(() => {
       db.prepare('INSERT INTO requests(id,product,specs,qty,destination,status,decision,version,created_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id, body.product.trim(), JSON.stringify(body.specs), body.qty, body.destination.trim(), 'recebida', null, 1, now);
+      this.whatsapp.registerTestSupplier(id);
       db.prepare('INSERT INTO tasks VALUES(?,?,?,?,?)').run(taskId,id,'queued',JSON.stringify({product:body.product.trim(),specs:body.specs,qty:body.qty,destination:body.destination.trim()}),now);
     })();
     await this.dispatch(db.prepare('SELECT * FROM tasks WHERE id=?').get(taskId));

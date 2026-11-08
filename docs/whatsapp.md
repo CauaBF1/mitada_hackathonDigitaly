@@ -35,6 +35,8 @@ Escaneie o QR retornado (ou use o visualizador local) com o WhatsApp do número 
 
 ## Teste por curl
 
+Para reutilizar um fornecedor em todas as novas solicitações de teste, defina `WHATSAPP_TEST_SUPPLIER_NUMBER` no `.env` e recrie a API (`podman compose up -d --build --force-recreate --no-deps api`). O número será cadastrado automaticamente com `supplier_id=teste-whatsapp`, inclusive em solicitações recriadas. Com essa configuração de teste ativa, a aplicação conclui a pesquisa, solicita uma ligação real via Vapi e acompanha seu estado. Se a criação da chamada falhar, ou ela terminar sem cotação registrada, dispara o fallback WhatsApp automaticamente. Não envia a abertura por Telegram nesse modo. Deixe a variável vazia para desativar o cadastro e o início automático de novos contatos. Com várias solicitações abertas para o mesmo número, responda citando a mensagem da solicitação correspondente para que a cotação seja atribuída corretamente.
+
 Use um número real sob seu controle no teste de envio: o fallback e as respostas automáticas enviam mensagens de verdade. Copie o `id` retornado pela criação para `REQUEST_ID`. Os valores de voz abaixo são os segredos definidos no `.env`.
 
 ```bash
@@ -73,7 +75,7 @@ Repita o mesmo `demo-in-2`: retorna `duplicate` e não cria mensagem/proposta/en
 
 Para testar o filtro do próprio bot, altere o payload para `fromMe: true`: retorna `ignored: from-me`. Sem o header secreto, retorna HTTP 401. Grupos, mídias sem texto, remetentes desconhecidos e outras instâncias são ignorados.
 
-Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. Nesse caso, a Evolution envia `message.extendedTextMessage.contextInfo.stanzaId` com o ID original, além de `extendedTextMessage.text`. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos; JIDs `@lid` sem telefone e grupos não são usados como número de fornecedor.
+Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. Nesse caso, a Evolution envia `message.extendedTextMessage.contextInfo.stanzaId` com o ID original, além de `extendedTextMessage.text`. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos. Para conversas `@lid`, o telefone é obtido de `key.remoteJidAlt`, quando ele contém um JID válido `@s.whatsapp.net`; JIDs `@lid` sem esse telefone e grupos continuam sendo ignorados.
 
 ## Conectar o encerramento de voz real
 
@@ -98,9 +100,11 @@ O novo endpoint aceita o evento normalizado mostrado acima ou este envelope Vapi
 }
 ```
 
-Inclua `request_id` e `supplier_id` ao iniciar a chamada. O contato deve estar cadastrado antes. O adaptador deve marcar `quote_completed: true` quando houver cotação concluída; uma proposta parcial não deve ser marcada como concluída. Status normalizados aceitos: `busy`, `no-answer`, `failed`, `hangup`, `completed`, `ended`. Também são reconhecidos `customer-busy`, `customer-did-not-answer`, `call-start-error`, `customer-ended-call`, `assistant-ended-call`, `silence-timed-out` e `max-duration-reached`. Outros estados não disparam contato. Não há discador de voz novo nesta alteração; o evento vem do provedor/adaptador já usado pela aplicação.
+Inclua `request_id` e `supplier_id` ao iniciar a chamada. O contato deve estar cadastrado antes. O adaptador deve marcar `quote_completed: true` quando houver cotação concluída; uma proposta parcial não deve ser marcada como concluída. Status normalizados aceitos: `busy`, `no-answer`, `failed`, `hangup`, `completed`, `ended`. Também são reconhecidos `customer-busy`, `customer-did-not-answer`, `call-start-error`, `customer-ended-call`, `assistant-ended-call`, `silence-timed-out` e `max-duration-reached`. Outros estados não disparam contato. No modo de fornecedor de teste, a API usa o discador existente em `/voice/call` e consulta `/voice/call/{call_id}` autenticada pelo token interno; portanto o fallback não depende de um webhook público estar acessível. A tentativa e o ID da chamada ficam em `whatsapp_contact_flow`. Reinícios não repetem a ligação. Falhas de consulta preservam a chamada e agendam uma nova consulta, sem iniciar outra. Callbacks de pesquisa de solicitações apagadas são descartados para não bloquear a fila.
 
 ## Persistência, falhas e testes automatizados
+
+API, agentes e frontend usam `restart: unless-stopped`, assim como a infraestrutura da Evolution. Isso permite ao runtime reiniciar containers após falhas; containers parados explicitamente continuam parados. Se a aplicação estiver indisponível, confira `podman compose ps -a` e inicie os serviços com `podman compose up -d`. Antes de gerar outro QR, consulte `/instance/connectionState/{instance}`: uma sessão persistida pode reconectar automaticamente, sem novo pareamento.
 
 - `whatsapp_contacts`: vínculo imutável entre número, fornecedor e solicitação.
 - `whatsapp_delivery`: chave de idempotência, conteúdo, ID retornado e estado do envio.

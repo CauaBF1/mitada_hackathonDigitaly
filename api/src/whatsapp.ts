@@ -28,7 +28,12 @@ export class WhatsAppService {
       request_id TEXT NOT NULL, number TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(request_id,number));
     CREATE TABLE IF NOT EXISTS whatsapp_voice_calls(
       id TEXT PRIMARY KEY, request_id TEXT NOT NULL, supplier_id TEXT NOT NULL,
-      quote_completed INTEGER NOT NULL DEFAULT 0);`);
+      quote_completed INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS whatsapp_contact_flow(
+      request_id TEXT PRIMARY KEY REFERENCES requests(id), supplier_id TEXT NOT NULL,
+      status TEXT NOT NULL, call_id TEXT, error TEXT, next_check_at TEXT);`);
+    // A call interrupted during creation may already exist at the provider. Never redial it.
+    db.prepare("UPDATE whatsapp_contact_flow SET status='fallback',error='Criação de chamada interrompida; não repetida.' WHERE status='starting'").run();
     const columns = db.prepare('PRAGMA table_info(conversation_messages)').all() as any[];
     for (const [name, type] of [['channel', "TEXT NOT NULL DEFAULT 'telegram'"], ['external_message_id', 'TEXT']]) {
       if (!columns.some(c => c.name === name)) db.exec(`ALTER TABLE conversation_messages ADD COLUMN ${name} ${type}`);
@@ -38,6 +43,11 @@ export class WhatsAppService {
     db.prepare("UPDATE conversation_messages SET delivery_status='uncertain' WHERE channel='whatsapp' AND delivery_status='sending'").run();
     db.prepare("UPDATE whatsapp_updates SET status=CASE WHEN answer IS NOT NULL THEN 'ready' ELSE 'pending' END WHERE status='processing'").run();
     db.prepare("UPDATE whatsapp_updates SET status='exhausted' WHERE status IN ('pending','ready') AND attempts>=3").run();
+  }
+
+  registerTestSupplier(id: string) {
+    const number = process.env.WHATSAPP_TEST_SUPPLIER_NUMBER?.trim();
+    if (number) this.register(id, { supplier_id: 'teste-whatsapp', name: 'Fornecedor de teste', number });
   }
 
   register(id: string, body: any) {
@@ -129,7 +139,12 @@ export class WhatsAppService {
     if (body?.instance !== process.env.WHATSAPP_INSTANCE_NAME || !['messages.upsert', 'MESSAGES_UPSERT'].includes(body?.event)) return { ok: true, ignored: 'unsupported-event' };
     const data = body?.data;
     if (data?.key?.fromMe === true) return { ok: true, ignored: 'from-me' };
-    const jid = data?.key?.remoteJid, externalId = data?.key?.id;
+    // Baileys can identify private chats by LID and provide the phone separately.
+    // Only use the alternate phone for LID chats; never turn groups into contacts.
+    const remoteJid = data?.key?.remoteJid;
+    const jid = typeof remoteJid === 'string' && /^\d+@lid$/.test(remoteJid)
+      ? data?.key?.remoteJidAlt : remoteJid;
+    const externalId = data?.key?.id;
     if (typeof jid !== 'string' || !/^[1-9]\d{6,14}@s\.whatsapp\.net$/.test(jid) || typeof externalId !== 'string' || !externalId || externalId.length > 200)
       return { ok: true, ignored: 'unsupported-sender' };
     const text = data?.message?.conversation || data?.message?.extendedTextMessage?.text;
@@ -158,8 +173,78 @@ export class WhatsAppService {
   }
 
   pump() {
+    if (process.env.WHATSAPP_TEST_SUPPLIER_NUMBER?.trim()) {
+      this.db.prepare(`INSERT OR IGNORE INTO whatsapp_contact_flow(request_id,supplier_id,status)
+        SELECT c.request_id,c.supplier_id,'ready' FROM whatsapp_contacts c JOIN requests r ON r.id=c.request_id
+        WHERE c.supplier_id='teste-whatsapp' AND r.status NOT IN ('recebida','pesquisando','decidida','concluida')
+        AND EXISTS(SELECT 1 FROM tasks t WHERE t.request_id=r.id AND t.status IN ('completed','failed'))`).run();
+    }
+    for (const row of this.db.prepare("SELECT * FROM whatsapp_contact_flow WHERE status IN ('ready','waiting','fallback') AND (next_check_at IS NULL OR next_check_at<=?) LIMIT 5").all(now()) as any[])
+      void this.advanceContact(row).catch(() => {});
     for (const row of this.db.prepare("SELECT id FROM whatsapp_updates WHERE status IN ('pending','ready') AND attempts<3 AND (retry_after IS NULL OR retry_after<=?) ORDER BY rowid LIMIT 10").all(now()) as any[])
       void this.process(row.id).catch(() => {});
+  }
+
+  private async advanceContact(row: any) {
+    const lock = `contact:${row.request_id}`;
+    if (this.active.has(lock)) return;
+    this.active.add(lock);
+    const exists = () => !!this.db.prepare('SELECT 1 FROM whatsapp_contact_flow WHERE request_id=?').get(row.request_id);
+    const set = (status: string, error: string | null = null, callId: string | null = row.call_id) => {
+      this.db.prepare('UPDATE whatsapp_contact_flow SET status=?,error=?,call_id=?,next_check_at=? WHERE request_id=?')
+        .run(status, error, callId, new Date(Date.now() + 15000).toISOString(), row.request_id);
+      row.status = status; row.call_id = callId; row.error = error;
+    };
+    try {
+      const req = this.getRequest(row.request_id);
+      if (['decidida','concluida'].includes(req.status)) { set('done'); return; }
+      const base = (process.env.AGENT_URL || 'http://agents:8000').replace(/\/$/, '');
+      const headers = { 'content-type': 'application/json', authorization: `Bearer ${process.env.INTERNAL_API_TOKEN || ''}` };
+      if (row.status === 'ready') {
+        const contact = this.db.prepare('SELECT * FROM whatsapp_contacts WHERE request_id=? AND supplier_id=?').get(req.id, row.supplier_id) as any;
+        if (!contact) { set('done', 'Fornecedor não cadastrado.'); return; }
+        set('starting');
+        this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Pesquisa encerrada; tentando ligar para o fornecedor.', req.id);
+        try {
+          const response = await fetch(`${base}/voice/call`, { method: 'POST', headers,
+            body: JSON.stringify({ request_id: req.id, supplier_id: row.supplier_id, phone_number: `+${contact.number}`,
+              supplier_name: contact.name, item: req.product, target_price: '0', qty: req.qty }), signal: AbortSignal.timeout(25000) });
+          if (!exists()) return;
+          const data: any = await response.json().catch(() => ({}));
+          if (!response.ok || typeof data.call_id !== 'string' || !data.call_id || data.call_id === 'unknown') {
+            const detail = typeof data.detail === 'string' ? ` ${data.detail.slice(0, 300)}` : '';
+            set('fallback', `Falha ao iniciar ligação: HTTP ${response.status}.${detail}`);
+          } else {
+            set('waiting', null, data.call_id);
+            this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Ligação solicitada; aguardando encerramento para verificar a cotação.', req.id);
+            return;
+          }
+        } catch {
+          if (!exists()) return;
+          set('fallback', 'Ligação sem confirmação de início; não será repetida.');
+        }
+      }
+      if (row.status === 'waiting') {
+        const response = await fetch(`${base}/voice/call/${encodeURIComponent(row.call_id)}`, { headers, signal: AbortSignal.timeout(15000) });
+        if (!exists()) return;
+        if (!response.ok) throw new Error('Estado da ligação indisponível');
+        const call: any = await response.json();
+        if (call.call_id !== row.call_id || call.request_id !== req.id || call.supplier_id !== row.supplier_id)
+          throw new Error('Chamada não corresponde à solicitação');
+        if (!['ended','failed'].includes(call.status)) { set('waiting'); return; }
+        set('fallback', call.ended_reason || 'Chamada encerrada sem cotação registrada.');
+      }
+      if (row.status === 'fallback') {
+        const result: any = await this.voice({ request_id: req.id, supplier_id: row.supplier_id,
+          call_id: row.call_id || `auto:${req.id}`, status: 'ended', quote_completed: false });
+        if (exists()) set(result.fallback?.ok || result.ignored ? 'done' : 'attention', row.error || null);
+      }
+    } catch {
+      if (exists()) {
+        this.db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=? WHERE request_id=?').run(new Date(Date.now() + 15000).toISOString(), row.request_id);
+        this.db.prepare('UPDATE requests SET notice=? WHERE id=?').run('Contato automático pendente; verificando o estado sem repetir a ligação.', row.request_id);
+      }
+    } finally { this.active.delete(lock); }
   }
 
   private async process(id: string) {

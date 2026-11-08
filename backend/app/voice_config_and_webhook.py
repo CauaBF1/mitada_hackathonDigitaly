@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import secrets
 from copy import deepcopy
 from decimal import Decimal
@@ -437,6 +438,7 @@ class OutboundCallRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # Aceita o id inteiro legado ou o UUID da API Nest; o webhook faz o vínculo automático.
     request_id: int | str
+    supplier_id: str | None = Field(default=None, min_length=1, max_length=100)
     phone_number: str = Field(min_length=8, max_length=20, pattern=r"^\+\d{7,19}$")
     supplier_name: str = Field(min_length=1, max_length=200)
     item: str = Field(min_length=1, max_length=300)
@@ -477,7 +479,7 @@ async def trigger_vapi_call(payload: OutboundCallRequest) -> OutboundCallRespons
         "assistantId": assistant_id,
         "phoneNumberId": phone_number_id,
         "customer": {"number": payload.phone_number},
-        "metadata": {"request_id": payload.request_id},
+        "metadata": {"request_id": payload.request_id, **({"supplier_id": payload.supplier_id} if payload.supplier_id else {})},
         "assistantOverrides": {
             "variableValues": {"purchase_context": purchase_context},
             "firstMessage": f"Olá! Sou o assistente de inteligência artificial de compras da Nexo. Gostaria de cotar {payload.item}, para uma quantidade de {payload.qty} unidades. Poderia me informar o preço unitário e as condições?",
@@ -491,7 +493,7 @@ async def trigger_vapi_call(payload: OutboundCallRequest) -> OutboundCallRespons
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(
-                "https://api.vapi.ai/call/phone",
+                "https://api.vapi.ai/call",
                 headers={
                     "Authorization": f"Bearer {api_key.get_secret_value()}",
                     "Content-Type": "application/json",
@@ -583,6 +585,27 @@ async def voice_webhook(payload: VoiceWebhook | VapiEnvelope, background_tasks: 
 async def initiate_call(payload: OutboundCallRequest):
     """Dispara uma ligação duplex de voz via Vapi para o número do fornecedor."""
     return await trigger_vapi_call(payload)
+
+
+@router.get("/voice/call/{call_id}")
+async def outbound_call_status(call_id: UUID, authorization: str | None = Header(default=None)):
+    expected = os.getenv("INTERNAL_API_TOKEN", "")
+    if not expected or not secrets.compare_digest((authorization or "").encode(), f"Bearer {expected}".encode()):
+        raise HTTPException(401, "Internal API authentication required")
+    if not settings.vapi_api_key:
+        raise HTTPException(503, "VAPI_API_KEY não configurada")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(f"https://api.vapi.ai/call/{call_id}",
+                headers={"Authorization": f"Bearer {settings.vapi_api_key.get_secret_value()}"})
+        if not response.is_success:
+            raise HTTPException(502, "Estado da chamada Vapi indisponível")
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(502, "Estado da chamada Vapi indisponível") from exc
+    metadata = data.get("metadata") or {}
+    return {"call_id": data.get("id"), "status": data.get("status"), "ended_reason": data.get("endedReason"),
+        "request_id": metadata.get("request_id"), "supplier_id": metadata.get("supplier_id")}
 
 
 def export_voice_configs(directory: Path, server_url: str | None = None, credential_id: str | None = None, structured_output_id: str | None = None) -> None:

@@ -1,5 +1,6 @@
 services:
   api:
+    restart: unless-stopped
     build:
       context: ./api
     environment:
@@ -14,6 +15,7 @@ services:
       WHATSAPP_API_URL: http://evolution:8080
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
       WHATSAPP_INSTANCE_NAME: ${WHATSAPP_INSTANCE_NAME:-nexo}
+      WHATSAPP_TEST_SUPPLIER_NUMBER: ${WHATSAPP_TEST_SUPPLIER_NUMBER:-}
       WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:-}
       VOICE_WEBHOOK_SECRET: ${VOICE_WEBHOOK_SECRET:-}
       JWT_SECRET: ${JWT_SECRET:-nexo-dev-jwt-secret-change-in-production}
@@ -23,6 +25,7 @@ services:
     ports: ["127.0.0.1:4000:4000"]
     depends_on: [agents]
   agents:
+    restart: unless-stopped
     build:
       context: ./backend
     environment:
@@ -45,6 +48,7 @@ services:
     volumes: [agent-data:/data]
     expose: ["8000"]
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
     environment:
