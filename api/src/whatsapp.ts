@@ -475,7 +475,8 @@ export class WhatsAppService {
       const timer = setTimeout(() => {
         this.deadlines.delete(row.request_id);
         const current = this.db.prepare("SELECT * FROM whatsapp_contact_flow WHERE request_id=? AND status IN ('wa_waiting','voice_waiting')").get(row.request_id) as any;
-        if (current) void this.advanceContact(current).catch(() => {});
+        if (current && (!current.next_check_at || Date.parse(current.next_check_at)<=Date.now())) void this.advanceContact(current).catch(() => {});
+        else if(current)this.pump();
       }, delay);
       timer.unref(); this.deadlines.set(row.request_id, timer);
     }

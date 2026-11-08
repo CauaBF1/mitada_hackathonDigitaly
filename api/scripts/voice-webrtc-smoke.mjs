@@ -50,12 +50,12 @@ const base = `http://127.0.0.1:${port}`;
 
 let child;
 let logs = '';
-async function start() {
+async function start(voiceWait = '120') {
   child = spawn(process.execPath, ['dist/main.js'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
-      PORT: String(port),
+      PORT: String(port),VOICE_ANSWER_TIMEOUT_SECONDS:voiceWait,
       DATABASE_PATH: dbPath,
       AGENT_URL: fakeUrl,
       INTERNAL_API_TOKEN: 'internal-test',
@@ -179,6 +179,13 @@ try {
   assert.ok(waSends.slice(beforeTranscript).some(m=>m.text.includes('Confirmação final por voz')),'terminal report sends transcript even when tool already completed the quote');
   const hist=(await json(`/history/${quoteId}`)).body;
   assert.ok(hist.quotes.some(q=>q.channel==='voice'&&q.eligible));assert.ok(hist.conversations.some(c=>c.channel==='voice'));
+  // An invitation timer cannot shorten the new WhatsApp deadline after an early call failure.
+  await stop();await start('2');const earlyFailure=await create('Teste prazo após falha');
+  const tgBeforeEarly=tgSends.length;
+  await json(`/call-session/${earlyFailure}/end`,{call_id:'early-failure',status:'failed',allow_transcript_extraction:false});
+  assert.equal(flow(earlyFailure).status,'wa_waiting');
+  await new Promise(resolve=>setTimeout(resolve,2500));
+  assert.equal(flow(earlyFailure).status,'wa_waiting');assert.equal(tgSends.length,tgBeforeEarly,'stale voice timer must respect the fresh WhatsApp deadline');
   console.log('PASS WebRTC → 120s → WhatsApp → 60s → Telegram; connected voice, transcript, restart/deduplication, delayed reply cancellation, LID/ninth digit, text counteroffer/final confirmation, scoped callback auth and voice quote history.');
 } catch(error){console.error(error);process.exitCode=1;}
 finally {if(child?.exitCode===null)await stop().catch(()=>{});db?.close();await new Promise(r=>fake.close(r));rmSync(dir,{recursive:true,force:true});}
