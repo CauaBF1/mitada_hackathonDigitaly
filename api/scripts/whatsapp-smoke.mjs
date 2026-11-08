@@ -180,6 +180,11 @@ try {
   assert.equal((await wa(inbound('recognized-reply','5517991636725',firstMsg,'Confirmo a cotação'))).body.status,'processed');
   assert.equal(db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(firstId).status,'done');
   await new Promise(resolve=>setTimeout(resolve,400)); assert.equal(telegramSends.length,0,'recognized WhatsApp reply cancels Telegram fallback');
+  // A retry scheduled before the supplier response cannot leak a later Telegram message.
+  const cancelledDelivery=`wa-fallback:${firstId}`;
+  db.prepare("INSERT INTO telegram_delivery(id,request_id,chat_id,status,created_at,message_text,attempts) VALUES(?,?,?,'failed',?,?,0)").run(cancelledDelivery,firstId,'777',new Date().toISOString(),'Fallback antigo');
+  await until(()=>db.prepare('SELECT status FROM telegram_delivery WHERE id=?').get(cancelledDelivery)?.status==='cancelled');
+  assert.equal(telegramSends.length,0,'a failed fallback retry is cancelled when WhatsApp already won');
   // A correlated supplier reply can arrive while the opening send awaits its Evolution acknowledgement.
   await stop(); await start('+5522888888888', true); sendDelayMs=500;
   const delayedReply = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });

@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import { publicAppUrl } from './voice-session';
 
 /** Docker-internal webhook delivery; no host-side relay is necessary. */
@@ -32,12 +33,22 @@ export async function refreshPublicOrigin() {
   return publicAppUrl();
 }
 
-export async function configureTelegramWebhook() {
+export async function configureTelegramWebhook(resolveIPv4:(host:string)=>Promise<{address:string}>=host=>lookup(host,{family:4})) {
   const token=process.env.TELEGRAM_BOT_TOKEN,secret=process.env.TELEGRAM_WEBHOOK_SECRET;
   const origin=publicAppUrl();
   if(!token || !secret || !origin.startsWith('https://'))return false;
-  const response=await fetch(`${process.env.TELEGRAM_API_URL||'https://api.telegram.org'}/bot${token}/setWebhook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:`${origin}/api/webhook/telegram`,secret_token:secret,allowed_updates:['message']}),signal:AbortSignal.timeout(10000)});
-  const body:any=await response.json();return response.ok && body.ok===true;
+  const payload:any={url:`${origin}/api/webhook/telegram`,secret_token:secret,allowed_updates:['message']};
+  const send=async()=>{
+    const response=await fetch(`${process.env.TELEGRAM_API_URL||'https://api.telegram.org'}/bot${token}/setWebhook`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(15000)});
+    const body:any=await response.json();return {ok:response.ok&&body.ok===true,description:String(body.description||'')};
+  };
+  let result=await send();
+  if(!result.ok && /failed to resolve host/i.test(result.description)){
+    // Official Bot API option: retain HTTPS hostname/SNI while bypassing stale Telegram DNS.
+    payload.ip_address=(await resolveIPv4(new URL(origin).hostname)).address;
+    result=await send();
+  }
+  return result.ok;
 }
 
 export function startIntegrationBootstrap() {

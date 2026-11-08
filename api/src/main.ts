@@ -363,7 +363,7 @@ function verifyJwt(token: string): Record<string, any> {
       db.prepare('DELETE FROM telegram_updates WHERE update_id IN (SELECT update_id FROM conversation_messages WHERE request_id=? AND update_id IS NOT NULL)').run(id);
       // Ordem respeita as foreign keys (outbox -> simulações -> cotações -> solicitação).
       for (const table of ['purchase_outbox', 'purchase_simulations', 'conversation_drafts', 'reputation_cache', 'quotes', 'tasks', 'telegram_delivery', 'telegram_outbound', 'contact_idempotency',
-        'text_negotiation_turns', 'text_negotiations', 'supplier_response_winner', 'whatsapp_contact_flow', 'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
+        'whatsapp_recovery', 'text_negotiation_turns', 'text_negotiations', 'supplier_response_winner', 'whatsapp_contact_flow', 'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
         db.prepare(`DELETE FROM ${table} WHERE request_id=?`).run(id);
       }
       db.prepare('DELETE FROM requests WHERE id=?').run(id);
@@ -672,7 +672,7 @@ function verifyJwt(token: string): Record<string, any> {
     AND NOT EXISTS (SELECT 1 FROM telegram_delivery newer WHERE newer.request_id=d.request_id AND newer.chat_id=d.chat_id
       AND (newer.created_at>d.created_at OR (newer.created_at=d.created_at AND newer.rowid>d.rowid)))
     ORDER BY d.created_at DESC,d.rowid DESC LIMIT 1`).get(id) as any)?.error||null;}
-  private async retryTelegram(delivery:any){if(!this.exists(delivery.request_id))return;const claimed=db.prepare("UPDATE telegram_delivery SET status='sending' WHERE id=? AND status='failed' AND attempts<3 AND (next_attempt_at IS NULL OR next_attempt_at<=?)").run(delivery.id,new Date().toISOString());if(!claimed.changes)return;let text=delivery.message_text;if(!text)text=await this.openingMessage(delivery.request_id);await this.sendTelegram(delivery.id,delivery.request_id,delivery.chat_id,text);}
+  private async retryTelegram(delivery:any){if(!this.exists(delivery.request_id))return;if(delivery.id.startsWith('wa-fallback:')&&db.prepare('SELECT 1 FROM supplier_response_winner WHERE request_id=?').get(delivery.request_id)){db.prepare("UPDATE telegram_delivery SET status='cancelled',next_attempt_at=NULL,error='Fornecedor já respondeu; fallback cancelado.' WHERE id=? AND status='failed'").run(delivery.id);return;}const claimed=db.prepare("UPDATE telegram_delivery SET status='sending' WHERE id=? AND status='failed' AND attempts<3 AND (next_attempt_at IS NULL OR next_attempt_at<=?)").run(delivery.id,new Date().toISOString());if(!claimed.changes)return;let text=delivery.message_text;if(!text)text=await this.openingMessage(delivery.request_id);await this.sendTelegram(delivery.id,delivery.request_id,delivery.chat_id,text);}
   private async sendTelegram(deliveryId:string,id:string,chat:string,text:string):Promise<boolean>{
     if(!this.exists(id))return false;
     db.prepare("UPDATE telegram_delivery SET message_text=?,attempts=attempts+1,next_attempt_at=NULL WHERE id=?").run(text,deliveryId);
@@ -784,7 +784,7 @@ function verifyJwt(token: string): Record<string, any> {
     const coreUnchanged=prior&&(!result?.terms||['unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'].every(k=>result.terms[k]==null||result.terms[k]===(k.endsWith('_confirmed')?!!prior[k]:prior[k])));
     if(result.intent!=='pending'&&phase==='quote_confirmation'&&!input.reprocess&&(this.explicitYes(input.message)||(result.explicit_confirmation===true&&coreUnchanged))){result.explicit_confirmation=true;result.terms_changed=false;result.terms=priorPayload;}
     else if(result.intent!=='pending'&&(!['quote_completed','purchase'].includes(phase)||result.terms_changed||input.reprocess)){
-      const accepted=this.negotiation.accept(id,'telegram',String(input.chat_id||''),phase==='negotiation'&&result.accepted_counter_offer===true);
+      const accepted=this.negotiation.accept(id,'telegram',String(input.chat_id||''),phase==='negotiation'&&result.accepted_counter_offer===true,phase==='negotiation'?input.message:'');
       if(accepted!==null)result.terms={...result.terms,unit_cents:accepted};
       const persisted=this.persistDraft(id,input,result.terms,priorQuote);result.terms=persisted.terms;result.missing_fields=persisted.missing_fields;result.validation_errors=persisted.validation_errors;
       if(persisted.changed)result.terms_changed=true;
@@ -795,6 +795,7 @@ function verifyJwt(token: string): Record<string, any> {
       if(!input.reprocess && !['purchase','quote_completed'].includes(phase) && !persisted.missing_fields.length && result.intent!=='pending') {
         const step=this.negotiation.turn(req,'telegram',String(input.chat_id||''),persisted.terms,result.offer_is_final===true,String(input.update_id??input.message_id??createHash('sha256').update(input.message+String(req.version)).digest('hex')));
         result.reply=step.reply;result.explicit_confirmation=false;
+        if(accepted!==null&&priorPayload&&['shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed','payment_terms','valid_until'].every(k=>(priorPayload[k as keyof typeof priorPayload]??null)===(persisted.terms[k]??null))){result.explicit_confirmation=true;result.terms_changed=false;result.reply='Cotação confirmada nos termos da contraproposta aceita; compra sujeita à aprovação humana.';}
         if(step.negotiating)db.prepare("UPDATE requests SET quote_completion_state='coletando',quote_terms_snapshot=NULL WHERE id=?").run(id);
         else db.prepare("UPDATE requests SET quote_completion_state='aguardando_confirmacao',quote_terms_snapshot=? WHERE id=?").run(this.termsSnapshot(persisted.terms),id);
       }
@@ -1171,6 +1172,7 @@ function verifyJwt(token: string): Record<string, any> {
   @Get('call-session/:id') getCallSession(@Param('id') id:string){return this.b.getCallSession(id);}
   @Post('call-session/:id/start') @HttpCode(200) startCallSession(@Param('id') id:string,@Body() body:any){const req=this.b.get(id);return this.b.whatsapp.voiceStarted(id,body?.call_id);}
   @Post('call-session/:id/end') @HttpCode(200) endCallSession(@Param('id') id:string,@Body() body:any){return this.b.endCallSession(id,body);}
+  @Post('requests/:id/whatsapp/reprocess') @HttpCode(200) reprocessWhatsApp(@Param('id') id:string,@Headers('authorization') auth:string,@Headers('idempotency-key') key?:string){this.agentAuth(auth);if(!key||key.length>160)throw new BadRequestException('Idempotency-Key obrigatória.');return this.b.whatsapp.reprocessLatest(id,key);}
   @Post('requests/:id/whatsapp') registerWhatsApp(@Param('id') id:string,@Body() body:any,@Headers('authorization') auth:string){this.agentAuth(auth);return this.b.whatsapp.register(id,body);}
   @Post('webhook/voice') @HttpCode(200) voice(@Body() body:any,@Headers('x-voice-webhook-secret') secret:string,@Headers('x-vapi-secret') vapiSecret?:string,@Headers('authorization') auth?:string,@Headers('x-call-session-token') sessionToken?:string){
     if(sessionToken) verifyCallSessionToken(sessionToken,body);

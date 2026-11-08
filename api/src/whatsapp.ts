@@ -16,6 +16,7 @@ export function webhookAuth(received: string, expected: string) {
 export class WhatsAppService {
   private active = new Set<string>();
   private negotiation: TextNegotiation;
+  private voicePollAfter = new Map<string,number>();
   private deadlines = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(private db: Database.Database, private getRequest: (id: string) => any,
     private addQuote: (id: string, quote: any) => any,
@@ -47,6 +48,8 @@ export class WhatsAppService {
       channel TEXT NOT NULL CHECK(channel IN ('whatsapp','telegram')), received_at TEXT NOT NULL, update_key TEXT NOT NULL);`);
     if (!(db.prepare('PRAGMA table_info(whatsapp_contact_flow)').all() as any[]).some(column => column.name === 'request_version'))
       db.exec('ALTER TABLE whatsapp_contact_flow ADD COLUMN request_version INTEGER');
+    db.exec(`CREATE TABLE IF NOT EXISTS whatsapp_recovery(request_id TEXT NOT NULL,update_id TEXT NOT NULL,revision INTEGER NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,PRIMARY KEY(update_id,revision));`);
+    if(!(db.prepare('PRAGMA table_info(whatsapp_updates)').all() as any[]).some(c=>c.name==='revision'))db.exec('ALTER TABLE whatsapp_updates ADD COLUMN revision INTEGER NOT NULL DEFAULT 0');
     // A call interrupted during creation may already exist at the provider. Never redial it.
     db.prepare("UPDATE whatsapp_contact_flow SET status='attention',error='Criação de chamada interrompida; não repetida.' WHERE status='starting'").run();
     const columns = db.prepare('PRAGMA table_info(conversation_messages)').all() as any[];
@@ -411,6 +414,22 @@ export class WhatsAppService {
     return {ok:true,status:'whatsapp',quote_completed:false};
   }
 
+  async reprocessLatest(id:string,key:string) {
+    const request=this.getRequest(id);
+    if(['decidida','concluida'].includes(request.status))return {ok:true,duplicate:true};
+    const cached=this.db.prepare('SELECT update_id FROM whatsapp_recovery WHERE idempotency_key=? AND request_id=?').get(key,id) as any;
+    if(cached)return {ok:true,duplicate:true,update_id:cached.update_id};
+    const update=this.db.prepare('SELECT * FROM whatsapp_updates WHERE request_id=? ORDER BY rowid DESC LIMIT 1').get(id) as any;
+    if(!update)throw new BadRequestException('Nenhuma resposta WhatsApp encontrada.');
+    if(this.active.has(`${id}:${update.number}`))throw new BadRequestException('Mensagem ainda em processamento.');
+    this.db.transaction(()=>{
+      this.db.prepare('INSERT INTO whatsapp_recovery VALUES(?,?,?,?)').run(id,update.id,update.revision+1,key);
+      this.db.prepare("UPDATE whatsapp_updates SET status='pending',attempts=0,answer=NULL,retry_after=NULL,revision=revision+1 WHERE id=?").run(update.id);
+    })();
+    await this.process(update.id);
+    return {ok:true,update_id:update.id,request:this.getRequest(id)};
+  }
+
   async webhook(body: any, secret: string) {
     const receivedAt = now();
     webhookAuth(secret, process.env.WHATSAPP_WEBHOOK_SECRET || '');
@@ -451,7 +470,7 @@ export class WhatsAppService {
     const accepted = this.db.transaction(() => {
       const claim = this.claimResponseChannel(mapping.request_id, mapping.supplier_id, 'whatsapp', receivedAt, updateId);
       if (!claim.allowed) return claim;
-      this.db.prepare("INSERT INTO whatsapp_updates VALUES(?,?,?,?,?,'pending',0,NULL,NULL,?)").run(updateId, mapping.request_id, number, mapping.supplier_id, text.trim(), receivedAt);
+      this.db.prepare("INSERT INTO whatsapp_updates(id,request_id,number,supplier_id,content,status,attempts,answer,retry_after,created_at) VALUES(?,?,?,?,?,'pending',0,NULL,NULL,?)").run(updateId, mapping.request_id, number, mapping.supplier_id, text.trim(), receivedAt);
       this.db.prepare(`INSERT INTO conversation_messages(id,request_id,chat_id,sender_type,content,channel,external_message_id,created_at)
         VALUES(?,?,?,'SUPPLIER',?,'whatsapp',?,?)`).run(`wa:${updateId}`, mapping.request_id, number, text.trim(), externalId, now());
       // A recognized supplier reply ends the 60-second fallback window, even if parsing retries.
@@ -467,7 +486,28 @@ export class WhatsAppService {
     return { ok: true, status: (this.db.prepare('SELECT status FROM whatsapp_updates WHERE id=?').get(updateId) as any)?.status || 'deleted' };
   }
 
+  private async syncVoice(row:any) {
+    const lock=`voice-poll:${row.request_id}`;
+    if(this.active.has(lock))return;this.active.add(lock);
+    try{
+      const response=await fetch(`${(process.env.VAPI_API_URL||'https://api.vapi.ai').replace(/\/$/,'')}/call/${encodeURIComponent(row.call_id)}`,{headers:{Authorization:`Bearer ${process.env.VAPI_API_KEY}`},signal:AbortSignal.timeout(10000)});
+      if(!response.ok)return;const call:any=await response.json();
+      if(call.id!==row.call_id || call.status!=='ended')return;
+      const metadata=call.metadata||call.assistantOverrides?.metadata;
+      if(metadata?.request_id!==row.request_id || metadata?.supplier_id!==row.supplier_id)return;
+      const current=this.db.prepare('SELECT status,call_id FROM whatsapp_contact_flow WHERE request_id=?').get(row.request_id) as any;
+      if(current?.status!=='voice_active'||current.call_id!==row.call_id)return;
+      await this.voice({message:{type:'end-of-call-report',endedReason:call.endedReason||'ended',call:{...call,metadata}}});
+    }catch{}finally{this.active.delete(lock);}
+  }
+
   pump() {
+    if(process.env.VAPI_API_KEY){
+      for(const row of this.db.prepare("SELECT request_id,supplier_id,call_id FROM whatsapp_contact_flow WHERE status='voice_active'").all() as any[]){
+        if(!/^[0-9a-f-]{36}$/i.test(row.call_id||'') || (this.voicePollAfter.get(row.request_id)||0)>Date.now())continue;
+        this.voicePollAfter.set(row.request_id,Date.now()+15000);void this.syncVoice(row);
+      }
+    }
     const waiting = this.db.prepare("SELECT * FROM whatsapp_contact_flow WHERE status IN ('wa_waiting','voice_waiting') AND next_check_at IS NOT NULL").all() as any[];
     for (const row of waiting) {
       if (this.deadlines.has(row.request_id)) continue;
@@ -650,6 +690,9 @@ export class WhatsAppService {
         const negotiationState=this.negotiation.state(req.id,'whatsapp',row.number);
         const phase=prior?.awaiting_confirmation?'quote_confirmation':negotiationState?.rounds>0&&!negotiationState.finished?'negotiation':'quotation';
         let parsed:any;
+        const directAcceptance=this.negotiation.accept(req.id,'whatsapp',row.number,false,phase==='negotiation'?row.content:'');
+        if(directAcceptance!==null)parsed={...prior,unit_cents:directAcceptance,accepted_counter_offer:true};
+        else {
         const conversational=await fetch(`${process.env.AGENT_URL || 'http://agents:8000'}/conversation-turn`,{
           method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},
           body:JSON.stringify({product:req.product,qty:req.qty,destination:req.destination,message:row.content.slice(0,4000),history:history.map(h=>({sender_type:h.sender_type,content:h.content.slice(0,4000)})),phase,
@@ -660,6 +703,7 @@ export class WhatsAppService {
             method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${process.env.INTERNAL_API_TOKEN||''}`},
             body:JSON.stringify({request_id:req.id,product:req.product,qty:req.qty,destination:req.destination,text:`Contexto recente:\n${history.map(x=>`${x.sender_type}: ${x.content}`).join('\n')}\nMensagem atual: ${row.content}`}),signal:AbortSignal.timeout(35000)});
           if(!response.ok)throw new Error('Interpretação indisponível');parsed=await response.json();
+        }
         }
         this.getRequest(req.id);
         const prefix=`whatsapp:${digest(row.number)}:`;
@@ -673,16 +717,18 @@ export class WhatsAppService {
         const missing = fields.filter(([key]) => merged[key] == null || merged[key] === false).map(([, label]) => label);
         const pending = Array.isArray(parsed.pending) ? parsed.pending.filter((p: unknown) => typeof p === 'string' && missing.includes(p)) : [];
         const remaining = [...new Set([...pending, ...missing])];
-        const accepted=this.negotiation.accept(req.id,'whatsapp',row.number,phase==='negotiation'&&parsed.accepted_counter_offer===true);
+        const accepted=this.negotiation.accept(req.id,'whatsapp',row.number,phase==='negotiation'&&parsed.accepted_counter_offer===true,phase==='negotiation'?row.content:'');
         if(accepted!==null)merged.unit_cents=accepted;
         const unchanged=prior&&['unit_cents','shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed'].every(k=>prior[k]===merged[k]);
-        const confirmed=!remaining.length&&prior?.awaiting_confirmation&&unchanged&&(parsed.explicit_confirmation===true||/^(?:sim|confirmo|confirmado|correto|de acordo)[.!\s]*$/i.test(row.content.trim()));
-        const step=!remaining.length&&!confirmed?this.negotiation.turn(req,'whatsapp',row.number,merged,parsed.offer_is_final===true,id):null;
+        const sameOtherTerms=prior&&['shipping_cents','fees_cents','lead_days','available_qty','product_confirmed','destination_confirmed','payment_terms','valid_until'].every(k=>(prior[k]??null)===(merged[k]??null));
+        const confirmed=!remaining.length&&((accepted!==null&&sameOtherTerms)||(prior?.awaiting_confirmation&&unchanged&&(parsed.explicit_confirmation===true||/^(?:sim|confirmo|confirmado|correto|de acordo)[.!\s]*$/i.test(row.content.trim()))));
+        const step=!remaining.length&&!confirmed?this.negotiation.turn(req,'whatsapp',row.number,merged,parsed.offer_is_final===true,`${id}:${row.revision||0}`):null;
         merged.awaiting_confirmation=!!step&&!step.negotiating;
         answer = confirmed ? 'Obrigado. Cotação confirmada e registrada; a decisão de compra depende de aprovação humana.' : step ? step.reply : remaining.length ? `Obrigado! Para completar a cotação, pode me informar ${remaining.join(', ')}?` : 'Obrigado! Sua cotação foi registrada para comparação.';
         this.db.transaction(() => {
           if (merged.unit_cents != null) this.addQuote(req.id, merged);
           if(confirmed){
+            this.db.prepare("UPDATE text_negotiations SET finished=1 WHERE request_id=? AND channel='whatsapp' AND supplier=?").run(req.id,row.number);
             const quote=this.db.prepare('SELECT id FROM quotes WHERE request_id=? AND event_id=?').get(req.id,merged.event_id) as any;
             const snapshot=Object.fromEntries(Object.entries(merged).filter(([k])=>!['event_id','awaiting_confirmation'].includes(k)));
             this.db.prepare("UPDATE requests SET status='concluida',quote_completion_state='concluida',completed_quote_id=?,quote_terms_snapshot=?,version=version+1 WHERE id=? AND status<>'decidida'").run(quote?.id,JSON.stringify(snapshot),req.id);
@@ -691,7 +737,7 @@ export class WhatsAppService {
           this.db.prepare("UPDATE whatsapp_updates SET answer=?,status='ready' WHERE id=?").run(answer, id);
         })();
       }
-      const sent = await this.sendWhatsApp(req.id, row.number, answer, `reply:${id}`);
+      const sent = await this.sendWhatsApp(req.id, row.number, answer, `reply:${id}${row.revision?`:recovery:${row.revision}`:''}`);
       this.db.prepare("UPDATE whatsapp_updates SET status=? WHERE id=?").run(sent.ok ? 'processed' : 'exhausted', id);
     } catch {
       const saved = this.db.prepare('SELECT answer FROM whatsapp_updates WHERE id=?').get(id) as any;

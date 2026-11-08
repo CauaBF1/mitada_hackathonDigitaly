@@ -41,7 +41,7 @@ function useProcurement() {
   }, []);
   useEffect(() => {
     mounted.current = true; void refresh();
-    const interval = setInterval(() => { if (!document.hidden) void refresh(); }, 5000);
+    const interval = setInterval(() => { if (!document.hidden) void refresh(); }, 2000);
     const visible = () => { if (!document.hidden) void refresh(); }; document.addEventListener("visibilitychange", visible);
     return () => { mounted.current = false; clearInterval(interval); pending.current?.abort(); pending.current = null; document.removeEventListener("visibilitychange", visible); };
   }, [refresh]);
@@ -159,7 +159,7 @@ export default function DashboardPage() {
         {(connection === "offline" || actionError) && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900"><span>{actionError || error} Os dados recebidos permanecem visíveis.</span><button onClick={() => void refresh()} className="font-semibold underline">Tentar novamente</button></div>}
         {actionSuccess && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800">{actionSuccess}</p>}
         <KanbanBoard deleted={deleted} repeated={repeated} rows={data.runs} selectedId={selectedId ?? undefined} select={id => { setSelectedId(id); setDrawerId(id); }} retry={id => void retry(id)} retrying={retrying} />
-        <footer className="flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-4 text-[9px] text-slate-400"><span>Nexo · Procurement Intelligence</span><span>Exibindo {data.runs.length} de {data.total_runs} solicitações</span><span>Atualização a cada 5s</span></footer>
+        <footer className="flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-4 text-[9px] text-slate-400"><span>Nexo · Procurement Intelligence</span><span>Exibindo {data.runs.length} de {data.total_runs} solicitações</span><span>Atualização a cada 2s</span></footer>
       </main>
     </div><SideDrawer deleted={deleted} repeated={repeated} row={data.runs.find(r => r.id === drawerId) || null} close={() => setDrawerId(null)} openChat={() => setChatId(drawerId)} decided={() => { void refresh(); }} /><LiveChatModal sandbox={data.runs.find(r => r.id === chatId)?.mode === "sandbox"} requestId={chatId} close={() => setChatId(null)} /><LiveDemoModal mode="live" open={open} close={() => setOpen(false)} created={async id => { setSelectedId(id); await refresh(); }} />
   </div>;

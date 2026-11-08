@@ -19,14 +19,19 @@ for(const channel of ['whatsapp','telegram']){
  assert.match(policy.turn(req,channel,'supplier',terms,false,'5').reply,/Confirma essas condições/);
 }
 assert.equal(policy.turn({...req,id:'final'},'whatsapp','supplier',terms,true,'1').negotiating,false,'explicit final supplier offer ends counteroffers');
+assert.equal(policy.accept(req.id,'whatsapp','missing',true,'Consigo sim'),null,'no acceptance without an active counteroffer');
+policy.turn({...req,id:'affirmative'},'whatsapp','supplier',terms,false,'1');
+for(const message of ['Consigo sim','Consigo ss','Sim','Aceito a contraproposta','De acordo'])assert.equal(policy.accept('affirmative','whatsapp','supplier',false,message),8000);
+for(const message of ['Não consigo','Sim, mas o frete muda','Sim, temos estoque','Talvez'])assert.equal(policy.accept('affirmative','whatsapp','supplier',false,message),null);
 assert.equal(targetUnitCents({quotes:[]},10001),8001,'integer-cent rounding');
-const calls=[];
+const calls=[];let forceDns=false;
 const fake=createServer(async(req,res)=>{
  let raw='';for await(const chunk of req)raw+=chunk;
  calls.push({url:req.url,body:raw?JSON.parse(raw):null,headers:req.headers});
  res.setHeader('content-type','application/json');
  if(req.url==='/metrics'){res.end('cloudflared_tunnel_user_hostnames_counts{userHostname="https://nexo-test.trycloudflare.com"} 1');return;}
  if(req.url.startsWith('/instance/connectionState')){res.end('{"instance":{"state":"open"}}');return;}
+ if(forceDns && req.url==='/botfake-token/setWebhook' && !JSON.parse(raw).ip_address){res.statusCode=400;res.end(JSON.stringify({ok:false,description:'Bad Request: bad webhook: Failed to resolve host: Name or service not known'}));return;}
  res.end('{"ok":true}');
 });
 await new Promise(r=>fake.listen(0,'127.0.0.1',r));
@@ -39,6 +44,7 @@ try{
  assert.equal(await refreshPublicOrigin(),'https://nexo-test.trycloudflare.com');
  assert.equal(await configureTelegramWebhook(),true);
  const telegram=calls.find(c=>c.url==='/botfake-token/setWebhook').body;
+ forceDns=true;assert.equal(await configureTelegramWebhook(async()=>({address:'104.16.231.132'})),true);assert.equal(calls.at(-1).body.ip_address,'104.16.231.132');
  assert.equal(telegram.url,'https://nexo-test.trycloudflare.com/api/webhook/telegram');assert.equal(telegram.secret_token,'fake-tg-secret');
  console.log('PASS shared negotiation policy: three rounds, event replay, final offers, market target; Docker-internal authenticated WhatsApp webhook and HTTPS Telegram setup.');
 }finally{db.close();await new Promise(r=>fake.close(r));}

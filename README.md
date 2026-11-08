@@ -111,7 +111,7 @@ Os módulos históricos de voz em Python usam outro modelo de dados e não são 
 
 ## Voz, WhatsApp e Telegram no Docker
 
-O fluxo começa pelo convite de chamada WebRTC em `/call/[id]`. Sem atendimento em 120 segundos, solicita a cotação por texto no WhatsApp. Após mais 60 segundos sem resposta, aciona o Telegram. Uma resposta reconhecida fixa o canal antes da interpretação e cancela o fallback. Durante uma chamada ativa não há fallback; sua transcrição é enviada ao WhatsApp ao encerrar. A negociação por texto usa a mesma meta de 20% de desconto e até três contrapropostas, seguida de confirmação explícita da cotação. A compra continua exigindo decisão humana.
+O fluxo começa pelo convite de chamada WebRTC em `/call/[id]`. Sem atendimento em 120 segundos, solicita a cotação por texto no WhatsApp. Após mais 60 segundos sem resposta, aciona o Telegram. Uma resposta reconhecida fixa o canal antes da interpretação e cancela o fallback. Durante uma chamada ativa não há fallback; sua transcrição é enviada ao WhatsApp ao encerrar. A negociação por texto usa a mesma meta de 20% de desconto e até três contrapropostas. Uma aceitação inequívoca da contraproposta, como “Consigo sim”, conclui a cotação quando os demais termos estão confirmados e não mudaram; alterações exigem nova confirmação. O Kanban atualiza automaticamente a cada 2 segundos. A compra continua exigindo decisão humana.
 
 Configure no `.env` `VAPI_PUBLIC_KEY` (chave pública), `VAPI_ASSISTANT_ID`, `INTERNAL_API_TOKEN` e as credenciais dos canais. A chave privada `VAPI_API_KEY` fica no servidor. Para uso no próprio computador:
 
@@ -128,7 +128,7 @@ docker compose -f compose.yaml -f compose.public.yaml up -d --build
 docker compose -f compose.yaml -f compose.public.yaml logs tunnel
 ```
 
-O endereço HTTPS aparece nos logs do túnel. A API descobre esse endereço pela rede interna, usa-o nos próximos convites e registra o webhook Telegram. O endereço temporário muda ao recriar o túnel; use um domínio estável para manter links antigos válidos. O túnel publica a aplicação; habilite-o apenas durante a demonstração. Sem chave pública/assistente de voz, o fluxo informa a configuração ausente e começa no WhatsApp.
+O endereço HTTPS aparece nos logs do túnel. A API descobre esse endereço pela rede interna, usa-o nos próximos convites e registra o webhook Telegram. O túnel é independente dos outros serviços para preservar os links durante rebuilds da aplicação. O endereço temporário muda ao recriar o próprio túnel; use um domínio estável para manter links antigos válidos. O túnel publica a aplicação; habilite-o apenas durante a demonstração. Sem chave pública/assistente de voz, o fluxo informa a configuração ausente e começa no WhatsApp.
 
 Validação sem envios reais: `npm run test:whatsapp` e `npm run test:voice` em `api/`. Os testes usam SQLite temporário e provedores HTTP simulados, incluindo reinícios, prazos persistidos, cancelamento por resposta, transcrição e confirmação final. Configuração da Evolution API v2 e pareamento: [docs/whatsapp.md](docs/whatsapp.md).
 

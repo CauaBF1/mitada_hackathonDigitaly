@@ -74,7 +74,7 @@ try {
   db.prepare('INSERT INTO contact_idempotency VALUES(?,?,?,?)').run(id,'key','{}',now);
   db.prepare('INSERT INTO whatsapp_contacts VALUES(?,?,?,?)').run(id,'supplier','Contato','5511999999999');
   db.prepare('INSERT INTO whatsapp_delivery VALUES(?,?,?,?,?,?,?,?)').run('delivery',id,'5511999999999','text','sent','external',null,now);
-  db.prepare('INSERT INTO whatsapp_updates VALUES(?,?,?,?,?,?,?,?,?,?)').run('update',id,'5511999999999','supplier','text','processed',1,null,null,now);
+  db.prepare('INSERT INTO whatsapp_updates(id,request_id,number,supplier_id,content,status,attempts,answer,retry_after,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run('update',id,'5511999999999','supplier','text','processed',1,null,null,now);
   db.prepare('INSERT INTO whatsapp_quote_state VALUES(?,?,?)').run(id,'5511999999999','{}');
   db.prepare('INSERT INTO whatsapp_voice_calls VALUES(?,?,?,?)').run('voice',id,'supplier',0);
   db.prepare('INSERT INTO telegram_updates(update_id,received_at,status) VALUES(?,?,?)').run(999,now,'processed');

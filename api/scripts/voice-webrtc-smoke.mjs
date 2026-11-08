@@ -10,7 +10,7 @@ const dir = mkdtempSync(join(tmpdir(), 'nexo-voice-webrtc-'));
 const dbPath = join(dir, 'business.sqlite');
 const waSends = [];
 const tgSends = [];
-let db, parseDelay=0;
+let db, parseDelay=0, providerCall=null;
 const turns=[];
 
 const fake = createServer(async (req, res) => {
@@ -32,6 +32,7 @@ const fake = createServer(async (req, res) => {
     res.end(JSON.stringify({ key: { id: `wa-${waSends.length}` } }));
     return;
   }
+  if(providerCall && req.url===`/call/${providerCall.id}`){res.end(JSON.stringify(providerCall));return;}
   if(req.url==='/conversation-turn'){
     turns.push(body);if(parseDelay)await new Promise(r=>setTimeout(r,parseDelay));
     const terms=body.terms||{supplier:'Fornecedor de teste',unit_cents:10000,shipping_cents:0,fees_cents:0,lead_days:7,available_qty:10,product_confirmed:true,destination_confirmed:true};
@@ -69,7 +70,7 @@ async function start(voiceWait = '120') {
       WHATSAPP_INSTANCE_NAME: 'nexo',
       WHATSAPP_WEBHOOK_SECRET: 'wa-secret',
       VOICE_WEBHOOK_SECRET: 'voice-secret',
-      VAPI_API_KEY: 'vapi-private-must-not-leak',
+      VAPI_API_KEY: 'vapi-private-must-not-leak',VAPI_API_URL:fakeUrl,
       VAPI_PUBLIC_KEY:'vapi-pub-test',WHATSAPP_TEST_SUPPLIER_NUMBER:'5517991636725',AUTO_CONFIGURE_INTEGRATIONS:'false',
       VAPI_ASSISTANT_ID: 'vapi-asst-test',
     },
@@ -137,7 +138,7 @@ try {
   const telegramReply=(update_id,text)=>json('/webhook/telegram',{update_id,message:{message_id:5000+update_id,chat:{id:998877},from:{id:998877},text,reply_to_message:{message_id:1}}},{'x-telegram-bot-api-secret-token':'tg-secret'});
   await telegramReply(1,'Preço 100, frete zero, taxas zero, 7 dias, estoque 10.');
   assert.match(tgSends.at(-1).text,/80.00/);
-  await telegramReply(2,'Aceito a contraproposta');assert.match(tgSends.at(-1).text,/Confirma essas condições/);
+  await telegramReply(2,'Consigo sim');assert.equal((await json(`/requests/${id}`)).body.quote_completion_state,'concluida','accepting the exact counteroffer completes the quote without another yes');
   await telegramReply(3,'Confirmo');assert.equal((await json(`/requests/${id}`)).body.quote_completion_state,'concluida');
   const telegramCount=tgSends.length;
   const responding=await create();parseDelay=900;
@@ -149,11 +150,20 @@ try {
   assert.equal(tgSends.length,telegramCount,'reply cancels Telegram even after parser interruption/restart');
   assert.match(waSends.at(-1).text,/80.00/,'text negotiates 20% below initial supplier price');
   const beforeDuplicate=waSends.length;await reply(responding,'response-1','Duplicado');assert.equal(waSends.length,beforeDuplicate);
-  await reply(responding,'response-2','Aceito a contraproposta');assert.match(waSends.at(-1).text,/Confirma essas condições/);
-  let request=(await json(`/requests/${responding}`)).body;assert.notEqual(request.quote_completion_state,'concluida');
+  await reply(responding,'response-2','Consigo sim');assert.match(waSends.at(-1).text,/confirmada e registrada/);
+  let request=(await json(`/requests/${responding}`)).body;assert.equal(request.quote_completion_state,'concluida');
   await reply(responding,'response-3','Confirmo');request=(await json(`/requests/${responding}`)).body;
   assert.equal(request.quote_completion_state,'concluida');assert.equal(request.quotes.find(q=>q.id===request.completed_quote_id).unit_cents,8000);
   assert.ok((await json(`/requests/${responding}/messages`)).body.some(m=>m.channel==='whatsapp'&&m.sender_type==='SUPPLIER'));
+  const recoveryId=await create('Recuperação de aceitação');
+  await reply(recoveryId,'recover-first','Preço 100, frete zero, taxas zero, 7 dias e estoque 10.');
+  await reply(recoveryId,'recover-last','Mensagem que exige reprocessamento');
+  db.prepare("UPDATE whatsapp_updates SET content='Consigo sim' WHERE request_id=? AND id=(SELECT id FROM whatsapp_updates WHERE request_id=? ORDER BY rowid DESC LIMIT 1)").run(recoveryId,recoveryId);
+  const beforeRecovery=waSends.length;
+  const recovered=await json(`/requests/${recoveryId}/whatsapp/reprocess`,{},{authorization:'Bearer internal-test','idempotency-key':'repair-acceptance'});
+  assert.equal(recovered.status,200);assert.equal(recovered.body.request.quote_completion_state,'concluida');assert.equal(waSends.length,beforeRecovery+1);
+  await json(`/requests/${recoveryId}/whatsapp/reprocess`,{},{authorization:'Bearer internal-test','idempotency-key':'repair-acceptance'});
+  assert.equal(waSends.length,beforeRecovery+1,'recovery cannot send duplicate final confirmations');
   // Connected voice has no timeout; its transcript goes to WhatsApp when the call ends.
   const active=await create();
   assert.equal((await json(`/call-session/${active}/start`,{call_id:'active-call'})).body.ok,true);
@@ -179,6 +189,12 @@ try {
   assert.ok(waSends.slice(beforeTranscript).some(m=>m.text.includes('Confirmação final por voz')),'terminal report sends transcript even when tool already completed the quote');
   const hist=(await json(`/history/${quoteId}`)).body;
   assert.ok(hist.quotes.some(q=>q.channel==='voice'&&q.eligible));assert.ok(hist.conversations.some(c=>c.channel==='voice'));
+  const lostClient=await create('Chamada sem callback do navegador');
+  const providerId='123e4567-e89b-42d3-a456-426614174000';
+  providerCall={id:providerId,status:'ended',endedReason:'customer-ended-call',metadata:{request_id:lostClient,supplier_id:'teste-whatsapp'},artifact:{messages:[{role:'user',message:'Transcrição recuperada do provedor.'}]}};
+  await json(`/call-session/${lostClient}/start`,{call_id:providerId});
+  await until(()=>flow(lostClient).status==='wa_waiting');
+  assert.ok(waSends.some(m=>m.text.includes('Transcrição recuperada do provedor.')),'polling Vapi recovers a missing terminal callback');
   // An invitation timer cannot shorten the new WhatsApp deadline after an early call failure.
   await stop();await start('2');const earlyFailure=await create('Teste prazo após falha');
   const tgBeforeEarly=tgSends.length;

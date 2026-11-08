@@ -136,3 +136,15 @@ node scripts/smoke.mjs
 ```
 
 O teste de WhatsApp usa apenas stubs HTTP e SQLite temporário: não exige Gemini, QR Code, Evolution nem número real. Referências: [webhook da Evolution](https://github.com/evolution-foundation/evolution-docs/blob/main/docs/02-Configuration/Webhooks.md), [configuração por instância](https://docs.evoapicloud.com/api-reference/webhook/set).
+
+## Aceitação, encerramento e endereço público
+
+Uma resposta inequívoca à contraproposta ativa (“Consigo sim”, “Aceito a contraproposta”) conclui a cotação no preço proposto quando frete, taxas, prazo, estoque, produto e destino permanecem confirmados. Uma resposta com ressalvas ou alteração dos termos exige nova confirmação. Isso registra a cotação; não autoriza uma compra. O Kanban consulta o estado automaticamente a cada 2 segundos.
+
+A API confere chamadas WebRTC ativas na Vapi a cada 15 segundos. Um relatório terminal perdido pelo navegador é recuperado do provedor, validando o vínculo de solicitação e fornecedor, e a transcrição segue pelo WhatsApp. Uma chamada concluída com cotação confirmada encerra o contato; uma chamada encerrada sem cotação completa continua por WhatsApp e só aciona Telegram após 60 segundos sem resposta.
+
+Use o endereço do túnel que aponta para **este** Compose. Uma página de chamada pode abrir em outro servidor e ainda retornar “solicitação não encontrada” se ele usar outro banco. O serviço de túnel é independente da API/frontend, preservando o endereço ao reconstruir apenas a aplicação. Recriar o próprio túnel gera um novo endereço e invalida links antigos.
+
+O webhook Telegram usa `/api/webhook/telegram` na origem pública atual, autenticado por segredo. Se o Telegram recusar o domínio por falha de DNS, a API usa o parâmetro oficial `ip_address` com o IPv4 resolvido desse mesmo domínio, preservando HTTPS. Não há polling externo ou relay no host.
+
+Para recuperar a interpretação da última resposta WhatsApp, sem duplicar o evento original, a API interna oferece `POST /requests/{id}/whatsapp/reprocess`, com `Authorization: Bearer INTERNAL_API_TOKEN` e `Idempotency-Key`. Só a última mensagem pode ser reprocessada; solicitações já concluídas não são reabertas. Cada recuperação mantém uma revisão auditável e sua confirmação é idempotente.
