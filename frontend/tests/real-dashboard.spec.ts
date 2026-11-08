@@ -95,7 +95,11 @@ test("Jev purchase recommendation is explicit, shows cent math, and records the 
   await page.goto("/dashboard");
   await page.locator("#kanban article").filter({ hasText: "Teclado de teste" }).locator('button[aria-pressed]').click();
   const drawer = page.getByRole("dialog", { name: "Teclado de teste" });
+  await page.setViewportSize({ width: 1440, height: 700 });
   await expect(drawer.getByRole("button", { name: "Automatizar recomendação com Jev" })).toBeVisible();
+  const recommendationButtonBox = await drawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).boundingBox();
+  expect(recommendationButtonBox).not.toBeNull();
+  expect(recommendationButtonBox!.y + recommendationButtonBox!.height).toBeLessThanOrEqual(700);
   expect(recommendationCalls).toBe(0);
   await drawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).click();
   await expect(drawer.getByText("Recomendação: fornecedor · Fornecedor cotado")).toBeVisible();

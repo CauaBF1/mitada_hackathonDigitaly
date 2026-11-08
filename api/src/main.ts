@@ -303,7 +303,7 @@ function verifyJwt(token: string): Record<string, any> {
       db.prepare('DELETE FROM telegram_updates WHERE update_id IN (SELECT update_id FROM conversation_messages WHERE request_id=? AND update_id IS NOT NULL)').run(id);
       // Ordem respeita as foreign keys (outbox -> simulações -> cotações -> solicitação).
       for (const table of ['purchase_outbox', 'purchase_simulations', 'conversation_drafts', 'reputation_cache', 'quotes', 'tasks', 'telegram_delivery', 'telegram_outbound', 'contact_idempotency',
-        'whatsapp_contact_flow', 'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
+        'supplier_response_winner', 'whatsapp_contact_flow', 'whatsapp_delivery', 'whatsapp_updates', 'whatsapp_quote_state', 'whatsapp_voice_calls', 'whatsapp_contacts', 'conversation_messages']) {
         db.prepare(`DELETE FROM ${table} WHERE request_id=?`).run(id);
       }
       db.prepare('DELETE FROM requests WHERE id=?').run(id);
@@ -459,6 +459,7 @@ function verifyJwt(token: string): Record<string, any> {
     const updateId=body?.update_id,msg=body?.message;if(!Number.isSafeInteger(updateId)||!msg||typeof msg.text!=='string')return {ok:true,ignored:'unsupported'};
     const chat=String(msg.chat?.id??'');if(!allowed.includes(chat)||String(msg.from?.id??'')!==chat)return {ok:true,ignored:'unauthorized-chat'};
     const raw=msg.text.trim(),command=raw.split(/\s+/,1)[0].toLowerCase();
+    const receivedAt=new Date().toISOString();
     const leaseUntil=new Date(Date.now()+40000).toISOString();
     if(!retry){
       const inserted=db.prepare("INSERT OR IGNORE INTO telegram_updates(update_id,received_at,raw_update,status,attempts,retry_after) VALUES(?,?,?,'processing',1,?)").run(updateId,new Date().toISOString(),JSON.stringify(body),leaseUntil);
@@ -543,6 +544,27 @@ function verifyJwt(token: string): Record<string, any> {
       }
       const reqId=String(mapping.request_id);
       this.get(reqId);
+      const flow=db.prepare('SELECT supplier_id FROM whatsapp_contact_flow WHERE request_id=?').get(reqId) as any;
+      const fallbackStarted=!!db.prepare("SELECT 1 FROM telegram_delivery WHERE id=? AND status IN ('sending','sent','uncertain','failed')").get(`wa-fallback:${reqId}`);
+      if(flow){
+        const existingWinner=db.prepare('SELECT channel FROM supplier_response_winner WHERE request_id=?').get(reqId) as any;
+        if(existingWinner?.channel==='whatsapp'){
+          db.prepare("UPDATE telegram_updates SET status='processed',retry_after=NULL,error='other-channel-won' WHERE update_id=?").run(updateId);
+          console.warn(JSON.stringify({event:'supplier_reply_ignored',channel:'telegram',reason:'other-channel-won'}));
+          return {ok:true,ignored:'other-channel-won'};
+        }
+        if(!fallbackStarted){
+          db.prepare("UPDATE telegram_updates SET status='processed',retry_after=NULL,error='whatsapp-priority-window' WHERE update_id=?").run(updateId);
+          console.warn(JSON.stringify({event:'supplier_reply_ignored',channel:'telegram',reason:'whatsapp-priority-window'}));
+          return {ok:true,ignored:'whatsapp-priority-window'};
+        }
+        const claim=this.whatsapp.claimResponseChannel(reqId,String(flow.supplier_id),'telegram',receivedAt,String(updateId));
+        if(!claim.allowed){
+          db.prepare("UPDATE telegram_updates SET status='processed',retry_after=NULL,error=? WHERE update_id=?").run(claim.reason,updateId);
+          console.warn(JSON.stringify({event:'supplier_reply_ignored',channel:'telegram',reason:claim.reason}));
+          return {ok:true,ignored:claim.reason};
+        }
+      }
       db.prepare("INSERT OR IGNORE INTO conversation_messages(id,request_id,chat_id,sender_type,content,delivery_status,telegram_message_id,update_id,created_at) VALUES(?,?,?,'SUPPLIER',?,'received',?,?,?)").run(randomUUID(),reqId,chat,raw,Number.isSafeInteger(msg.message_id)?msg.message_id:null,updateId,new Date().toISOString());
       return await this.withTurnLock(reqId,async()=>{
         if(!this.exists(reqId))return {ok:true,ignored:'deleted'};

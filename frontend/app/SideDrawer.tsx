@@ -192,58 +192,8 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
       <header className="flex items-start justify-between gap-4 bg-gradient-to-r from-blue-600 to-blue-400 p-6 text-white"><div><p className="text-[10px] font-semibold uppercase tracking-widest text-blue-100">Inteligência da negociação · #{row.id}</p><h2 id="drawer-title" className="mt-2 text-xl font-semibold">{row.item}</h2><p className="mt-2 text-xs text-blue-100">{row.qty} unidade(s) · {row.delivery_location || "Destino a confirmar"}</p></div><button autoFocus onClick={close} aria-label="Fechar detalhes" className="rounded-lg p-2 hover:bg-white/10"><X size={20} /></button></header>
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
         <RequestActions key={row.id} id={row.id} product={row.item} disabled={decisionBusy !== null} onDeleted={deleted} onRepeated={repeated}/>
-        {row.mode === "sandbox" && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Teste no seu Telegram · resultados fora dos indicadores reais.</p>}
-        {!!row.whatsapp_pending?.length && <section aria-label="Propostas recebidas pelo WhatsApp" className="rounded-2xl border border-green-200 bg-green-50/50 p-4"><h3 className="text-sm font-semibold text-green-900">WhatsApp · propostas em andamento</h3><p className="mt-1 text-[11px] leading-relaxed text-green-800">Cada contato permanece separado do Telegram e dos demais fornecedores. Termos ausentes continuam sem valor.</p><div className="mt-3 space-y-3">{row.whatsapp_pending.map(contact => {
-          const terms = contact.terms || {};
-          const cents = (key: string) => Number.isSafeInteger(terms[key]) ? Number(terms[key]) as number : null;
-          const unit = cents("unit_cents"), shipping = cents("shipping_cents"), fees = cents("fees_cents");
-          const subtotal = unit !== null && Number.isSafeInteger(unit * row.qty) ? unit * row.qty : null;
-          const total = subtotal !== null && shipping !== null && fees !== null && Number.isSafeInteger(subtotal + shipping + fees) ? subtotal + shipping + fees : null;
-          return <article key={contact.supplier_id} className="rounded-xl border border-green-100 bg-white p-3"><div className="flex flex-wrap justify-between gap-2"><strong className="text-xs text-slate-800">{contact.supplier_name || "Fornecedor WhatsApp"}</strong><span className="text-[10px] text-slate-400">WhatsApp · {contact.supplier_id}</span></div><dl className="mt-3 grid grid-cols-2 gap-3 text-[11px]"><div><dt className="text-slate-400">Unitário × {row.qty}</dt><dd className="mt-1 font-medium">{unit === null ? "Não informado" : `${brl((unit / 100).toFixed(2))} × ${row.qty}`}</dd></div><div><dt className="text-slate-400">Frete</dt><dd className="mt-1 font-medium">{shipping === null ? "Não informado" : brl((shipping / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">Taxas</dt><dd className="mt-1 font-medium">{fees === null ? "Não informado" : brl((fees / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">TCO calculável</dt><dd className="mt-1 font-semibold">{total === null ? "Pendente" : brl((total / 100).toFixed(2))}</dd></div></dl>{contact.missing_fields.length > 0 && <p className="mt-3 text-[10px] text-amber-800">Pendente: {contact.missing_fields.map(field => MISSING_LABELS[field] || field).join(", ")}</p>}</article>;
-        })}</div></section>}
-        {row.notice && <p role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">{row.notice}</p>}
-        <section aria-label="Composição do TCO" className="rounded-2xl bg-[#111827] p-5 text-white shadow-lg">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Composição do TCO · Dados do fornecedor</p>
-              <p className="mt-1 text-[11px] text-slate-400">Informações extraídas pelo agente na conversa + custos logísticos</p>
-            </div>
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${row.status === "DONE" ? "bg-emerald-500/20 text-emerald-200" : row.quote_completion_state === "aguardando_confirmacao" ? "bg-sky-500/20 text-sky-200" : row.quote ? "bg-amber-500/20 text-amber-200" : "bg-slate-700 text-slate-300"}`}>
-              {row.status === "DONE" ? "Cotação concluída" : row.quote_completion_state === "aguardando_confirmacao" ? "Aguardando confirmação final" : row.quote ? "Extração em andamento" : "Aguardando fornecedor"}
-            </span>
-          </div>
-          <dl className="mt-5 space-y-3 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor ({row.quote?.channel === "whatsapp" ? "WhatsApp" : "Telegram"})</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
-            <div className="flex justify-between gap-4"><dt className="text-slate-300">Preço unitário final × {row.qty}</dt><dd className="numeric">{audit ? `${brl(audit.final_price)} × ${row.qty}` : row.quote?.final_price ? `${brl(row.quote.final_price)} × ${row.qty}` : "A confirmar"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-300">Subtotal de produtos</dt><dd className="numeric">{brl(audit?.product_subtotal ?? (row.quote?.final_price ? (Number(row.quote.final_price) * row.qty).toFixed(2) : null))}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-300">Frete</dt><dd className="numeric">{audit ? brl(audit.shipping_fee) : row.quote?.shipping_fee == null ? "Não confirmado" : brl(row.quote.shipping_fee)}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-300">Taxas adicionais</dt><dd className="numeric">{feeAmount == null ? "Não confirmadas" : brl(feeAmount)}</dd></div>
-            {audit?.additional_costs?.map((cost, i) => <div key={i} className="flex justify-between text-xs text-slate-400"><dt>{cost.description}</dt><dd>{brl(cost.amount)}</dd></div>)}
-            <div className="flex justify-between"><dt className="text-slate-300">Prazo de entrega</dt><dd className="text-xs text-slate-200">{deliveryDays != null ? `${deliveryDays} dias` : row.quote?.delivery_time && row.quote.delivery_time !== "Não confirmado" ? row.quote.delivery_time : "Não confirmado"}</dd></div>
-            <div className="flex justify-between"><dt className="text-slate-300">Estoque informado</dt><dd className="text-xs text-slate-200">{row.quote?.available_qty != null ? `${row.quote.available_qty} unidade(s)` : "Não confirmado"}</dd></div>
-            {row.quote?.payment_terms && <div className="flex justify-between gap-4"><dt className="text-slate-300">Pagamento</dt><dd className="text-right text-xs text-slate-200">{row.quote.payment_terms}</dd></div>}
-            {row.quote?.valid_until && <div className="flex justify-between gap-4"><dt className="text-slate-300">Validade</dt><dd className="text-right text-xs text-slate-200">{row.quote.valid_until}</dd></div>}
-            {row.quote?.conditions && !row.quote.conditions.includes(" | https://") && <div className="flex justify-between gap-4"><dt className="text-slate-300">Condições</dt><dd className="text-right text-xs text-slate-200">{row.quote.conditions}</dd></div>}
-            <div className="flex justify-between border-t border-white/10 pt-4 text-lg font-semibold">
-              <dt>{fullTco != null ? "Total negociado" : partialTotal != null ? "Total parcial extraído" : "Total negociado"}</dt>
-              <dd className="numeric text-blue-200">{brl(fullTco ?? partialTotal)}</dd>
-            </div>
-          </dl>
-          {row.status !== "DONE" && row.quote_completion_state === "aguardando_confirmacao" && (
-            <p className="mt-4 rounded-xl bg-sky-500/15 p-3 text-xs leading-relaxed text-sky-100">Todos os dados obrigatórios foram extraídos. Aguardando apenas o &ldquo;Confirmo&rdquo; final do fornecedor no Telegram para mover para Concluídas.</p>
-          )}
-          {row.status !== "DONE" && row.missing_fields && row.missing_fields.length > 0 && (
-            <p className="mt-4 rounded-xl bg-amber-500/15 p-3 text-xs leading-relaxed text-amber-100">Pendente com o fornecedor para concluir a cotação: {row.missing_fields.map(field => MISSING_LABELS[field] || field).join(", ")}.</p>
-          )}
-        </section>
-
         {row.status === "DONE" && (
-          <section aria-label="Decisão de compra" className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">Decisão de compra · Fornecedor ou Internet</h3>
-              <p className="mt-1 text-xs text-slate-600">Escolha entre fechar com o fornecedor cotado no Telegram ou registrar preferência por uma oferta da internet.</p>
-            </div>
-            <div className="space-y-3 rounded-xl border border-violet-200 bg-white p-3.5">
+        <section aria-label="Recomendação de compra com Jev" className="space-y-3 rounded-xl border border-violet-200 bg-white p-3.5">
               <div>
                 <h4 className="text-xs font-semibold text-slate-900">Recomendação de compra com Jev</h4>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-600">A análise só começa quando você solicita. Ela compara os termos registrados do fornecedor com as ofertas de mercado disponíveis e mostra quais evidências e custos ainda precisam de confirmação.</p>
@@ -299,6 +249,58 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
                 </div>;
               })()}
               {recommendationError && <p role="alert" className="text-xs text-rose-700">{recommendationError}</p>}
+            </section>
+        )}
+        {row.mode === "sandbox" && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Teste no seu Telegram · resultados fora dos indicadores reais.</p>}
+        {!!row.whatsapp_pending?.length && <section aria-label="Propostas recebidas pelo WhatsApp" className="rounded-2xl border border-green-200 bg-green-50/50 p-4"><h3 className="text-sm font-semibold text-green-900">WhatsApp · propostas em andamento</h3><p className="mt-1 text-[11px] leading-relaxed text-green-800">Cada contato permanece separado do Telegram e dos demais fornecedores. Termos ausentes continuam sem valor.</p><div className="mt-3 space-y-3">{row.whatsapp_pending.map(contact => {
+          const terms = contact.terms || {};
+          const cents = (key: string) => Number.isSafeInteger(terms[key]) ? Number(terms[key]) as number : null;
+          const unit = cents("unit_cents"), shipping = cents("shipping_cents"), fees = cents("fees_cents");
+          const subtotal = unit !== null && Number.isSafeInteger(unit * row.qty) ? unit * row.qty : null;
+          const total = subtotal !== null && shipping !== null && fees !== null && Number.isSafeInteger(subtotal + shipping + fees) ? subtotal + shipping + fees : null;
+          return <article key={contact.supplier_id} className="rounded-xl border border-green-100 bg-white p-3"><div className="flex flex-wrap justify-between gap-2"><strong className="text-xs text-slate-800">{contact.supplier_name || "Fornecedor WhatsApp"}</strong><span className="text-[10px] text-slate-400">WhatsApp · {contact.supplier_id}</span></div><dl className="mt-3 grid grid-cols-2 gap-3 text-[11px]"><div><dt className="text-slate-400">Unitário × {row.qty}</dt><dd className="mt-1 font-medium">{unit === null ? "Não informado" : `${brl((unit / 100).toFixed(2))} × ${row.qty}`}</dd></div><div><dt className="text-slate-400">Frete</dt><dd className="mt-1 font-medium">{shipping === null ? "Não informado" : brl((shipping / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">Taxas</dt><dd className="mt-1 font-medium">{fees === null ? "Não informado" : brl((fees / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">TCO calculável</dt><dd className="mt-1 font-semibold">{total === null ? "Pendente" : brl((total / 100).toFixed(2))}</dd></div></dl>{contact.missing_fields.length > 0 && <p className="mt-3 text-[10px] text-amber-800">Pendente: {contact.missing_fields.map(field => MISSING_LABELS[field] || field).join(", ")}</p>}</article>;
+        })}</div></section>}
+        {row.notice && <p role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">{row.notice}</p>}
+        <section aria-label="Composição do TCO" className="rounded-2xl bg-[#111827] p-5 text-white shadow-lg">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-blue-200">Composição do TCO · Dados do fornecedor</p>
+              <p className="mt-1 text-[11px] text-slate-400">Informações extraídas pelo agente na conversa + custos logísticos</p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${row.status === "DONE" ? "bg-emerald-500/20 text-emerald-200" : row.quote_completion_state === "aguardando_confirmacao" ? "bg-sky-500/20 text-sky-200" : row.quote ? "bg-amber-500/20 text-amber-200" : "bg-slate-700 text-slate-300"}`}>
+              {row.status === "DONE" ? "Cotação concluída" : row.quote_completion_state === "aguardando_confirmacao" ? "Aguardando confirmação final" : row.quote ? "Extração em andamento" : "Aguardando fornecedor"}
+            </span>
+          </div>
+          <dl className="mt-5 space-y-3 text-sm">
+            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor ({row.quote?.channel === "whatsapp" ? "WhatsApp" : "Telegram"})</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-300">Preço unitário final × {row.qty}</dt><dd className="numeric">{audit ? `${brl(audit.final_price)} × ${row.qty}` : row.quote?.final_price ? `${brl(row.quote.final_price)} × ${row.qty}` : "A confirmar"}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-300">Subtotal de produtos</dt><dd className="numeric">{brl(audit?.product_subtotal ?? (row.quote?.final_price ? (Number(row.quote.final_price) * row.qty).toFixed(2) : null))}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-300">Frete</dt><dd className="numeric">{audit ? brl(audit.shipping_fee) : row.quote?.shipping_fee == null ? "Não confirmado" : brl(row.quote.shipping_fee)}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-300">Taxas adicionais</dt><dd className="numeric">{feeAmount == null ? "Não confirmadas" : brl(feeAmount)}</dd></div>
+            {audit?.additional_costs?.map((cost, i) => <div key={i} className="flex justify-between text-xs text-slate-400"><dt>{cost.description}</dt><dd>{brl(cost.amount)}</dd></div>)}
+            <div className="flex justify-between"><dt className="text-slate-300">Prazo de entrega</dt><dd className="text-xs text-slate-200">{deliveryDays != null ? `${deliveryDays} dias` : row.quote?.delivery_time && row.quote.delivery_time !== "Não confirmado" ? row.quote.delivery_time : "Não confirmado"}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-300">Estoque informado</dt><dd className="text-xs text-slate-200">{row.quote?.available_qty != null ? `${row.quote.available_qty} unidade(s)` : "Não confirmado"}</dd></div>
+            {row.quote?.payment_terms && <div className="flex justify-between gap-4"><dt className="text-slate-300">Pagamento</dt><dd className="text-right text-xs text-slate-200">{row.quote.payment_terms}</dd></div>}
+            {row.quote?.valid_until && <div className="flex justify-between gap-4"><dt className="text-slate-300">Validade</dt><dd className="text-right text-xs text-slate-200">{row.quote.valid_until}</dd></div>}
+            {row.quote?.conditions && !row.quote.conditions.includes(" | https://") && <div className="flex justify-between gap-4"><dt className="text-slate-300">Condições</dt><dd className="text-right text-xs text-slate-200">{row.quote.conditions}</dd></div>}
+            <div className="flex justify-between border-t border-white/10 pt-4 text-lg font-semibold">
+              <dt>{fullTco != null ? "Total negociado" : partialTotal != null ? "Total parcial extraído" : "Total negociado"}</dt>
+              <dd className="numeric text-blue-200">{brl(fullTco ?? partialTotal)}</dd>
+            </div>
+          </dl>
+          {row.status !== "DONE" && row.quote_completion_state === "aguardando_confirmacao" && (
+            <p className="mt-4 rounded-xl bg-sky-500/15 p-3 text-xs leading-relaxed text-sky-100">Todos os dados obrigatórios foram extraídos. Aguardando apenas o &ldquo;Confirmo&rdquo; final do fornecedor no Telegram para mover para Concluídas.</p>
+          )}
+          {row.status !== "DONE" && row.missing_fields && row.missing_fields.length > 0 && (
+            <p className="mt-4 rounded-xl bg-amber-500/15 p-3 text-xs leading-relaxed text-amber-100">Pendente com o fornecedor para concluir a cotação: {row.missing_fields.map(field => MISSING_LABELS[field] || field).join(", ")}.</p>
+          )}
+        </section>
+
+        {row.status === "DONE" && (
+          <section aria-label="Decisão de compra" className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Decisão de compra · Fornecedor ou Internet</h3>
+              <p className="mt-1 text-xs text-slate-600">Escolha entre fechar com o fornecedor cotado no Telegram ou registrar preferência por uma oferta da internet.</p>
             </div>
             {row.quote && (
               <div className="space-y-3 rounded-xl border border-emerald-200 bg-white p-3.5">

@@ -70,6 +70,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(503, {"detail": "API temporariamente indisponível.", "code": "upstream_unreachable"})
         if len(payload) > MAX_BODY:
             return self.reply(502, {"detail": "Resposta da API excedeu o limite."})
+        if status == 200:
+            try:
+                outcome = json.loads(payload)
+                ignored = outcome.get("ignored") if isinstance(outcome, dict) else None
+                if isinstance(ignored, str) and ignored.replace("-", "").replace("_", "").isalnum() and len(ignored) <= 80:
+                    self.log_event(f"webhook_forward status=200 ignored={ignored}")
+            except (ValueError, TypeError):
+                pass
         try:
             self.send_response(status)
             self.send_header("Content-Type", "application/json")

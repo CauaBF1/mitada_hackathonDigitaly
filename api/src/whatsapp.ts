@@ -33,7 +33,10 @@ export class WhatsAppService {
       quote_completed INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS whatsapp_contact_flow(
       request_id TEXT PRIMARY KEY REFERENCES requests(id), supplier_id TEXT NOT NULL,
-      status TEXT NOT NULL, call_id TEXT, error TEXT, next_check_at TEXT, request_version INTEGER);`);
+      status TEXT NOT NULL, call_id TEXT, error TEXT, next_check_at TEXT, request_version INTEGER);
+    CREATE TABLE IF NOT EXISTS supplier_response_winner(
+      request_id TEXT PRIMARY KEY REFERENCES requests(id), supplier_id TEXT NOT NULL,
+      channel TEXT NOT NULL CHECK(channel IN ('whatsapp','telegram')), received_at TEXT NOT NULL, update_key TEXT NOT NULL);`);
     if (!(db.prepare('PRAGMA table_info(whatsapp_contact_flow)').all() as any[]).some(column => column.name === 'request_version'))
       db.exec('ALTER TABLE whatsapp_contact_flow ADD COLUMN request_version INTEGER');
     // A call interrupted during creation may already exist at the provider. Never redial it.
@@ -47,6 +50,23 @@ export class WhatsAppService {
     db.prepare("UPDATE conversation_messages SET delivery_status='uncertain' WHERE channel='whatsapp' AND delivery_status='sending'").run();
     db.prepare("UPDATE whatsapp_updates SET status=CASE WHEN answer IS NOT NULL THEN 'ready' ELSE 'pending' END WHERE status='processing'").run();
     db.prepare("UPDATE whatsapp_updates SET status='exhausted' WHERE status IN ('pending','ready') AND attempts>=3").run();
+  }
+
+  /** Persist the first supplier channel before interpretation; later messages from that channel remain valid. */
+  claimResponseChannel(requestId: string, supplierId: string, channel: 'whatsapp' | 'telegram', receivedAt: string, updateKey: string) {
+    return this.db.transaction(() => {
+      const flow = this.db.prepare('SELECT supplier_id FROM whatsapp_contact_flow WHERE request_id=?').get(requestId) as any;
+      if (!flow) return { allowed: true, winner: channel };
+      if (flow.supplier_id !== supplierId) return { allowed: false, winner: null, reason: 'supplier-mismatch' };
+      this.db.prepare('INSERT OR IGNORE INTO supplier_response_winner(request_id,supplier_id,channel,received_at,update_key) VALUES(?,?,?,?,?)')
+        .run(requestId, supplierId, channel, receivedAt, updateKey);
+      const winner = this.db.prepare('SELECT channel,supplier_id FROM supplier_response_winner WHERE request_id=?').get(requestId) as any;
+      if (winner?.channel !== channel || winner?.supplier_id !== supplierId)
+        return { allowed: false, winner: winner?.channel || null, reason: 'other-channel-won' };
+      this.db.prepare("UPDATE whatsapp_contact_flow SET status='done',next_check_at=NULL,error=NULL WHERE request_id=? AND supplier_id=? AND status IN ('ready','wa_waiting','telegram_fallback')")
+        .run(requestId, supplierId);
+      return { allowed: true, winner: channel };
+    })();
   }
 
   registerTestSupplier(id: string) {
@@ -180,6 +200,7 @@ export class WhatsAppService {
   }
 
   async webhook(body: any, secret: string) {
+    const receivedAt = now();
     webhookAuth(secret, process.env.WHATSAPP_WEBHOOK_SECRET || '');
     if (body?.instance !== process.env.WHATSAPP_INSTANCE_NAME || !['messages.upsert', 'MESSAGES_UPSERT'].includes(body?.event)) return { ok: true, ignored: 'unsupported-event' };
     const data = body?.data;
@@ -203,19 +224,27 @@ export class WhatsAppService {
     if (typeof parent === 'string' && !mapping) return { ok: true, ignored: 'unknown-reply' };
     if (!mapping) {
       const open = this.db.prepare(`SELECT c.* FROM whatsapp_contacts c JOIN requests r ON r.id=c.request_id
-        WHERE c.number=? AND r.status<>'decidida' AND EXISTS(SELECT 1 FROM whatsapp_delivery d WHERE d.request_id=c.request_id AND d.number=c.number AND d.status IN ('sent','uncertain','sending'))`).all(number) as any[];
+        WHERE c.number=? AND r.status NOT IN ('decidida','concluida') AND COALESCE(r.quote_completion_state,'coletando')<>'concluida'
+        AND EXISTS(SELECT 1 FROM whatsapp_delivery d WHERE d.request_id=c.request_id AND d.number=c.number AND d.status IN ('sent','uncertain','sending'))`).all(number) as any[];
       if (open.length !== 1) return { ok: true, ignored: open.length ? 'ambiguous-request' : 'unknown-contact' };
       mapping = open[0];
     }
     if (this.getRequest(mapping.request_id).status === 'decidida') return { ok: true, ignored: 'decided' };
-    this.db.transaction(() => {
-      this.db.prepare("INSERT INTO whatsapp_updates VALUES(?,?,?,?,?,'pending',0,NULL,NULL,?)").run(updateId, mapping.request_id, number, mapping.supplier_id, text.trim(), now());
+    const accepted = this.db.transaction(() => {
+      const claim = this.claimResponseChannel(mapping.request_id, mapping.supplier_id, 'whatsapp', receivedAt, updateId);
+      if (!claim.allowed) return claim;
+      this.db.prepare("INSERT INTO whatsapp_updates VALUES(?,?,?,?,?,'pending',0,NULL,NULL,?)").run(updateId, mapping.request_id, number, mapping.supplier_id, text.trim(), receivedAt);
       this.db.prepare(`INSERT INTO conversation_messages(id,request_id,chat_id,sender_type,content,channel,external_message_id,created_at)
         VALUES(?,?,?,'SUPPLIER',?,'whatsapp',?,?)`).run(`wa:${updateId}`, mapping.request_id, number, text.trim(), externalId, now());
-      // A recognized supplier reply ends the 30-second fallback window, even if parsing retries.
+      // A recognized supplier reply ends the 60-second fallback window, even if parsing retries.
       this.db.prepare("UPDATE whatsapp_contact_flow SET status='done',error=NULL,next_check_at=NULL WHERE request_id=? AND supplier_id=? AND status IN ('ready','wa_waiting')")
         .run(mapping.request_id, mapping.supplier_id);
+      return claim;
     })();
+    if (!accepted.allowed) {
+      console.warn(JSON.stringify({ event: 'supplier_reply_ignored', channel: 'whatsapp', reason: accepted.reason }));
+      return { ok: true, ignored: accepted.reason };
+    }
     await this.process(updateId);
     return { ok: true, status: (this.db.prepare('SELECT status FROM whatsapp_updates WHERE id=?').get(updateId) as any)?.status || 'deleted' };
   }
@@ -345,7 +374,11 @@ export class WhatsAppService {
           .run(deliveryId, req.id, chat, now(), `Olá! Você poderia cotar ${req.product} (${req.qty} unidades) para entrega em ${req.destination}? Informe preço unitário, frete, taxas, prazo, disponibilidade e condições.`);
         const message = `Olá! Você poderia cotar ${req.product} (${req.qty} unidades) para entrega em ${req.destination}? Informe preço unitário, frete, taxas, prazo, disponibilidade e condições.`;
         const result = await this.sendTelegram(deliveryId, req.id, chat, message);
-        if (exists()) set(result ? 'done' : 'attention', result ? null : 'Fallback Telegram sem confirmação; não será repetido se a entrega for incerta.');
+        if (exists()) {
+          const winner = this.db.prepare('SELECT channel FROM supplier_response_winner WHERE request_id=?').get(req.id) as any;
+          if (winner) set('done');
+          else set(result ? 'done' : 'attention', result ? null : 'Fallback Telegram sem confirmação; não será repetido se a entrega for incerta.');
+        }
       }
     } catch {
       if (exists()) {
