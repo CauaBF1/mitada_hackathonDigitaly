@@ -6,7 +6,7 @@ const base = () => (process.env.API_URL || "http://127.0.0.1:4000").replace(/\/$
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 async function upstream(path: string, init: RequestInit = {}) {
-  const timeout = path === "integrations/search" ? 30000 : (path.endsWith("/reputation-refresh") || path.includes("/price-history")) ? 40000 : 12000;
+  const timeout = path.includes("/price-history") ? 55000 : path === "integrations/search" ? 30000 : path.endsWith("/reputation-refresh") ? 40000 : 12000;
   return fetch(`${base()}/${path.replace(/^\//, "")}`, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout), headers: { "Content-Type": "application/json", ...init.headers } });
 }
 function asRun(row: any) {
@@ -145,8 +145,12 @@ function asRun(row: any) {
   })).filter((item: any) => [...researchDomainSet].some((origin: string) => reputationMatchesOrigin(item.supplier_domain, origin, true))) : [];
   const reputation_indications = mapReputationIndications(analysis.reputation_indications);
   const status = frontendStatus(row.status, quotes.length);
+  const directSupplier = (quote: any) => quote.channel === "whatsapp" || quote.channel === "telegram" || quote.supplier_chat_id != null || /^(?:whatsapp|telegram|conversation|recovery):/.test(String(quote.event_id || ""));
+  const supplierQuoteForCost = quotes.find((quote: any) => quote.id === row.completed_quote_id && directSupplier(quote))
+    || quotes.find((quote: any) => directSupplier(quote) && Number.isSafeInteger(quote.unit_cents) && quote.unit_cents > 0);
   const marketAverage = sources.length ? (sources.reduce((sum: number, item: any) => sum + Number(item.price), 0) / sources.length).toFixed(2) : null;
   return {
+    supplier_unit_price: supplierQuoteForCost && Number.isSafeInteger(supplierQuoteForCost.unit_cents) && supplierQuoteForCost.unit_cents > 0 ? (supplierQuoteForCost.unit_cents / 100).toFixed(2) : null,
     id: String(row.id), version: row.version, item: row.product, qty: row.qty, requested_target: null, target_price: null,
     market_average: marketAverage, status, stage: row.status, sources, reputations, reputation_indications, purchase_simulation: row.purchase_simulation || null,
     latest_purchase_recommendation: row.latest_purchase_recommendation || null,

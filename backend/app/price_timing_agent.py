@@ -11,9 +11,10 @@ from typing import Literal
 from fastapi import APIRouter, Header, HTTPException
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .config import settings
+from .buscape_history import BuscapeHistoryProvider, HistoryCandidate, HistorySource, product_url
 
 
 class StrictModel(BaseModel):
@@ -43,6 +44,13 @@ class PriceTimingInput(StrictModel):
     price_source: Literal["selected", "negotiated", "reference", "unavailable"]
     history: list[PricePoint] = Field(default_factory=list, max_length=10000)
     days: Literal[30, 60, 90] = 60
+    external_history: bool = False
+    source_url: str | None = None
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value):
+        return product_url(value) if value else None
 
 
 class PriceHistoryResponse(StrictModel):
@@ -53,11 +61,15 @@ class PriceHistoryResponse(StrictModel):
     selected_price: Decimal | None
     selected_date: date
     price_source: Literal["selected", "negotiated", "reference", "unavailable"]
-    data_source: Literal["persisted", "unavailable"]
+    data_source: Literal["persisted", "external", "unavailable"]
     analysis_source: Literal["llm", "statistical_fallback", "insufficient_data"]
     days: int
     real_observation_count: int
     message: str
+    source: HistorySource | None = None
+    source_candidates: list[HistoryCandidate] = Field(default_factory=list)
+    external_error: str | None = None
+    history_basis: Literal["local_quotes", "daily_minimum"] = "local_quotes"
 
 
 def money(value: Decimal) -> Decimal:
@@ -95,12 +107,21 @@ class PriceTimingAgent:
     async def analyze(self, payload: PriceTimingInput, today: date | None = None) -> PriceHistoryResponse:
         today = today or datetime.now(timezone.utc).date()
         since = today - timedelta(days=payload.days-1)
-        observed = sorted((point for point in payload.history if since <= point.date <= today), key=lambda point: (point.date, point.supplier))
+        external = await BuscapeHistoryProvider().fetch(payload.item_name, payload.source_url) if payload.external_history else None
+        evidence = [PricePoint.model_validate(point) for point in external.history] if external else payload.history
+        observed = sorted((point for point in evidence if since <= point.date <= today), key=lambda point: (point.date, point.supplier))
         common = dict(selected_price=payload.selected_price, selected_date=today, price_source=payload.price_source,
-                      days=payload.days, observed_history=observed, real_observation_count=len(observed))
+                      days=payload.days, observed_history=observed, real_observation_count=len(observed),
+                      source=external.source if external else None, source_candidates=external.candidates if external else [],
+                      external_error=external.error if external else None,
+                      history_basis="daily_minimum" if external else "local_quotes")
+        if external and not observed:
+            return PriceHistoryResponse(**common, history=[], analysis=None, historical_average=None,
+                data_source="unavailable", analysis_source="insufficient_data", message=external.message if not external.source else
+                    "O produto foi consultado no Buscapé, mas não há registros publicados dentro do período selecionado.")
         if payload.selected_price is None:
             return PriceHistoryResponse(**common, history=observed, analysis=None, historical_average=None,
-                data_source="unavailable", analysis_source="insufficient_data",
+                data_source="external" if external else "unavailable", analysis_source="insufficient_data",
                 message="Ainda não há preço registrado para este item. Colete uma cotação e atualize a análise.")
         daily = daily_prices(observed)
         sufficient = len(daily) >= 7 and (daily[-1][0]-daily[0][0]).days >= 7
@@ -110,7 +131,7 @@ class PriceTimingAgent:
                 history=observed,
                 analysis=None,
                 historical_average=None,
-                data_source="unavailable",
+                data_source="external" if external else "unavailable",
                 analysis_source="insufficient_data",
                 message=(f"Há {len(daily)} dia(s) com preço observado no período de {payload.days} dias; "
                          "são necessárias ao menos 7 datas distribuídas por 7 dias. "
@@ -143,8 +164,8 @@ class PriceTimingAgent:
             # Provider outages must not hide price evidence or invent an AI answer.
             pass
         return PriceHistoryResponse(**common, history=points, analysis=report, historical_average=average,
-            data_source="persisted", analysis_source=source,
-            message="Preços unitários em BRL, sem frete ou taxas. Média e percentil usam médias diárias por fornecedor; mínima e máxima usam os registros individuais.")
+            data_source="external" if external else "persisted", analysis_source=source,
+            message=("Histórico consultado diretamente no Buscapé. Média e percentil usam os menores preços diários publicados, sem frete e taxas. O gráfico contém somente as datas disponíveis na janela selecionada." if external else "Preços unitários em BRL, sem frete ou taxas. Média e percentil usam médias diárias por fornecedor; mínima e máxima usam os registros individuais."))
 
     async def _invoke(self, payload: PriceTimingInput, baseline: PriceTimingReport, points: list[PricePoint]) -> PriceTimingReport:
         key = settings.active_llm_api_key
@@ -159,7 +180,7 @@ class PriceTimingAgent:
              "não invente sazonalidade, promoções futuras ou alta iminente. Explique em 2 a 3 frases em português, mencionando limitações. "
              "A confiança não pode superar a confiança da análise base. O percentil usa médias diárias, com empates no ponto médio."),
             ("human", json.dumps(dict(item=payload.item_name, current_price=str(payload.selected_price),
-                price_source=payload.price_source, baseline=baseline.model_dump(mode="json"),
+                price_source=payload.price_source, history_basis="menor preço diário do Buscapé" if payload.external_history else "cotações locais", baseline=baseline.model_dump(mode="json"),
                 history=[dict(date=day.isoformat(), price=str(money(price))) for day, price in daily_prices(points)]), ensure_ascii=False)),
         ]
         try:

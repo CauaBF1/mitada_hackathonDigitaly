@@ -265,28 +265,27 @@ function verifyJwt(token: string): Record<string, any> {
   }
 
   get(id: string): any { const r = db.prepare('SELECT * FROM requests WHERE id=?').get(id) as any; if (!r) throw new NotFoundException('Solicitação não encontrada'); return this.expand(r); }
-  async priceHistory(id: string, daysText?: string) {
+  async priceHistory(id: string, daysText?: string, sourceUrl?: string) {
     const days = daysText === undefined ? 60 : Number(daysText);
     if (![30, 60, 90].includes(days)) throw new BadRequestException('Período deve ser 30, 60 ou 90 dias.');
     const request = this.get(id);
     const selectedId = request.preferred_market_quote_id || request.decision || request.completed_quote_id;
     const chosen = request.quotes.find((quote: any) => quote.id === selectedId);
     const reference = chosen || request.quotes[0];
-    // Same product, specification and quantity only; all comparisons are unit prices.
-    // Never turn observations for a different variant/volume into a price history.
-    const rows = db.prepare(`SELECT q.created_at,q.unit_cents,q.supplier FROM quotes q
-      JOIN requests r ON r.id=q.request_id
-      WHERE lower(trim(r.product))=lower(trim(?)) AND r.specs=? AND r.qty=?
-      AND q.unit_cents>0 AND date(q.created_at)>=date('now',?) AND date(q.created_at)<=date('now')
-      ORDER BY q.created_at DESC LIMIT 10000`).all(request.product, JSON.stringify(request.specs), request.qty, `-${days-1} days`) as any[];
+    if (sourceUrl) {
+      try {
+        const url = new URL(sourceUrl);
+        if (url.origin !== 'https://www.buscape.com.br' || url.username || url.password || url.search || url.hash || !/^\/[a-z0-9-]+\/[a-z0-9-]+$/.test(url.pathname) || sourceUrl.length>600) throw new Error();
+      } catch { throw new BadRequestException('Selecione um endereço de produto válido do Buscapé.'); }
+    }
     try {
       const response = await fetch(`${process.env.AGENT_URL || 'http://agents:8000'}/price-timing/analyze`, {
         method: 'POST', headers: {'content-type':'application/json', authorization:`Bearer ${process.env.INTERNAL_API_TOKEN || ''}`},
-        body: JSON.stringify({item_name: request.product, days,
+        body: JSON.stringify({item_name: request.product, days, external_history:true, source_url:sourceUrl || null,
           selected_price: reference ? (reference.unit_cents/100).toFixed(2) : null,
           price_source: chosen ? (request.preferred_market_quote_id || request.decision ? 'selected' : 'negotiated') : reference ? 'reference' : 'unavailable',
-          history: rows.map(row => ({date: row.created_at.slice(0,10), price:(row.unit_cents/100).toFixed(2), supplier:row.supplier}))}),
-        signal: AbortSignal.timeout(38000),
+          history: []}),
+        signal: AbortSignal.timeout(48000),
       });
       if (!response.ok) throw new Error('price timing unavailable');
       return await response.json();
@@ -800,7 +799,7 @@ function verifyJwt(token: string): Record<string, any> {
   @Delete('requests/:id') @HttpCode(200) remove(@Param('id') id:string){return this.b.remove(id);}
   @Post('requests/:id/repeat') repeat(@Param('id') id:string,@Body() body:any){return this.b.repeat(id,body);}
   @Get('requests/:id') detail(@Param('id') id:string){return this.b.get(id);}
-  @Get('procurement/:id/price-history') priceHistory(@Param('id') id:string,@Query('days') days?:string){return this.b.priceHistory(id,days);}
+  @Get('procurement/:id/price-history') priceHistory(@Param('id') id:string,@Query('days') days?:string,@Query('source_url') sourceUrl?:string){return this.b.priceHistory(id,days,sourceUrl);}
   @Get('requests/:id/messages') messages(@Param('id') id:string){return this.b.messages(id);}
   @Post('requests/:id/contact-supplier') contact(@Param('id') id:string,@Headers('idempotency-key') key?:string,@Body() body?:any){return this.b.contactSupplier(id,key,body?.supplier_id);}
   /** Fluxo duplex: (1) liga via Vapi → (2) follow-up Telegram automático pós-chamada */

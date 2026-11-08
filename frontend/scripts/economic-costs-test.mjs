@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { economicCosts } from '../app/dashboard/analise-economica/economic-costs.ts';
+const supplier = {channel:'whatsapp',source_type:'supplier_whatsapp',final_price:'900.00'};
+assert.deepEqual(economicCosts({quote:supplier,sources:[{price:'800.25'},{price:'1000.00'}]}),{supplier:'900.00',lowest:'800.25'});
+assert.deepEqual(economicCosts({quote:supplier,sources:[{price:'950.00'}]}),{supplier:'900.00',lowest:'900.00'});
+assert.deepEqual(economicCosts({quote:{channel:'market',source_type:'legacy_unverified',final_price:'500.00'},sources:[{price:'500.00'}]}),{supplier:null,lowest:'500.00'});
+assert.deepEqual(economicCosts({quote:null,sources:[{price:'NaN'},{price:'-1'},{price:'0'},{price:'1.001'}]}),{supplier:null,lowest:null});
+assert.deepEqual(economicCosts(undefined),{supplier:null,lowest:null});
+assert.deepEqual(economicCosts({quote:{...supplier,final_price:'0.30'},sources:[{price:'0.29'}]}),{supplier:'0.30',lowest:'0.29'});
+assert.deepEqual(economicCosts({supplier_unit_price:'900.00',quote:{channel:'market',source_type:'legacy_unverified',final_price:'800.00'},sources:[{price:'800.00'}]}),{supplier:'900.00',lowest:'800.00'});
+console.log('Economic cards: supplier vs market, minimum price, missing/invalid values and decimal precision passed.');

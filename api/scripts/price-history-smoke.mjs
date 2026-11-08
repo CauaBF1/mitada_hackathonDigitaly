@@ -44,8 +44,15 @@ try {
   let r = await fetch(`${base}/procurement/current/price-history?days=30`);
   assert.equal(r.status,200); assert.equal((await r.json()).selected_price,'90.00');
   assert.equal(captured.price_source,'selected'); assert.equal(captured.days,30);
-  assert.equal(captured.history.length,3);
-  assert.deepEqual(captured.history.map(p=>p.price).sort(),['100.00','110.00','90.00']);
+  assert.deepEqual(captured.history,[]);
+  assert.equal(captured.external_history,true);
+  assert.equal(captured.source_url,null);
+  const source='https://www.buscape.com.br/mouse/mouse-gamer-optico-sem-fio-pro-x-superlight-logitech';
+  assert.equal((await fetch(`${base}/procurement/current/price-history?days=90&source_url=${encodeURIComponent(source)}`)).status,200);
+  assert.equal(captured.source_url,source);assert.equal(captured.days,90);
+  for(const url of ['http://127.0.0.1:8080/private','https://www.buscape.com.br.evil.test/mouse/item','https://www.buscape.com.br/mouse/item?token=bad','https://user@www.buscape.com.br/mouse/item']) {
+    assert.equal((await fetch(`${base}/procurement/current/price-history?source_url=${encodeURIComponent(url)}`)).status,400);
+  }
   db.prepare("UPDATE requests SET preferred_market_quote_id='latest' WHERE id='current'").run();
   await fetch(`${base}/procurement/current/price-history`);
   assert.equal(captured.selected_price,'110.00'); assert.equal(captured.days,60);
@@ -53,7 +60,7 @@ try {
   assert.equal((await fetch(`${base}/procurement/current/price-history?days=7`)).status,400);
   unavailable=true;
   assert.equal((await fetch(`${base}/procurement/current/price-history`)).status,503);
-  console.log('Price history API: selection precedence, exact-item filtering, date windows, auth, 400/404/503 passed.');
+  console.log('Price history API: selection precedence, external history selection, URL validation, periods, auth, 400/404/503 passed.');
 } finally {
   db?.close();
   if (child && child.exitCode === null) {const stopped = new Promise(resolve=>child.once('exit',resolve));child.kill('SIGTERM');await stopped;}

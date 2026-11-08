@@ -1,29 +1,42 @@
-# Histórico de preços e timing de compra
+# Dashboard: custos e histórico externo
 
-A seção está em `/dashboard/analise-economica`, junto dos indicadores econômicos existentes. O seletor temporal também aceita solicitações ainda sem decisão final.
+A seção fica em `/dashboard/analise-economica`.
 
-## Contrato e origem dos dados
+## Cards de custo
 
-`GET /api/procurement/{request_id}/price-history?days=60` aceita períodos de 30, 60 ou 90 dias. O proxy Next encaminha para a rota Nest de mesmo caminho sem `/api`; a API Nest consulta seu SQLite e envia somente os dados necessários para `POST /price-timing/analyze`, autenticado com `INTERNAL_API_TOKEN` no serviço de agentes.
+- **Custo do fornecedor**: preço unitário informado pelo fornecedor direto (WhatsApp ou Telegram), preservado mesmo quando a opção escolhida é uma oferta da internet. Usa a cotação concluída quando identificada, ou a proposta direta mais recente com preço.
+- **Menor custo**: menor preço unitário entre esse fornecedor e as ofertas de mercado levantadas na solicitação. Não é um valor de economia. A disponibilidade e os termos das ofertas continuam sujeitos à confirmação.
+- **Custo total final**: mantém o total auditado, incluindo quantidade, frete e taxas.
 
-A consulta combina cotações persistidas do mesmo nome de produto, JSON de especificações e quantidade. Não há scraping de históricos de Zoom, Buscapé ou Keepa. Os valores são **unitários em BRL**, sem frete ou taxas. A referência obedece à prioridade: preferência de mercado, decisão, cotação concluída e, por último, cotação mais recente. Esse último caso é identificado como referência, não como escolha final.
+Os dois primeiros cards excluem frete e taxas para comparar a mesma base. Valores ausentes aparecem como indisponíveis; não se assume custo zero. A seleção do mínimo usa centavos inteiros (`BigInt`).
 
-A resposta contém `history`, `analysis`, `observed_history`, `historical_average`, `selected_price`, `selected_date`, `price_source`, `data_source`, `analysis_source`, `days`, `real_observation_count` e `message`. Datas usam UTC; valores monetários e percentuais decimais são strings. Sem preço disponível, `analysis` e `selected_price` são nulos e nenhuma referência é inventada.
+## Busca direta no Buscapé
 
-## Cálculos e dados insuficientes
+`GET /api/procurement/{request_id}/price-history?days=60` busca o nome do item na página pública `https://www.buscape.com.br/busca/{item}`. Retorna `source_candidates` para o comprador confirmar o modelo/geração correto, evitando usar por engano o histórico de uma variante parecida.
 
-Uma série real exige ao menos sete datas distintas distribuídas por pelo menos sete dias dentro do período. A média diária equilibra fornecedores e evita que repetidas capturas do mesmo fornecedor tenham peso extra. Média histórica e percentil usam essas médias diárias; a mínima e a máxima são observações individuais. Empates usam o ponto médio do percentil: uma série plana com preço atual igual à média resulta em percentil 50. A tendência compara a média do primeiro terço com a do último, com faixa estável de ±3%.
+Depois da seleção, a mesma rota recebe `source_url=https://www.buscape.com.br/categoria/produto`. A API Nest envia o preço atual e o nome do item ao agente interno; apenas a consulta pública do item ou o endereço do produto é enviado ao Buscapé. Dados de contatos, endereço de entrega e mensagens não fazem parte da consulta ao site.
 
-Quando há menos de sete datas em um intervalo de pelo menos sete dias, a API retorna apenas as observações reais disponíveis, com `analysis` e `historical_average` nulos e `analysis_source="insufficient_data"`. A interface pode desenhar essas observações, mas não mostra uma média, tendência, percentil ou recomendação. Nenhum preço atual é projetado para datas passadas, e não se interpola histórico ausente.
+O módulo `backend/app/buscape_history.py` lê a série publicada em `__NEXT_DATA__.props.initialReduxState.priceHistory.priceHistory[product_id].days`. Confere o ID do produto, sua página canônica, data, valor positivo finito e precisão de centavos. Os pontos representam o **menor preço diário publicado pelo comparador**, sem frete e taxas. Quando o nome da loja não consta do registro, mostra o identificador original, sem inventar um nome.
 
-## Agente e indisponibilidade
+A resposta inclui `source` (nome do site, URL, produto, data da consulta e intervalo disponível), `source_candidates`, `history_basis="daily_minimum"` e `data_source="external"` quando houver série. A interface permite conferir o gráfico original e escolher outro produto.
 
-`PriceTimingAgent` é isolado dos agentes existentes. Com histórico suficiente, usa `ChatGoogleGenerativeAI(model="gemini-2.5-flash")` ou `ChatGroq`, conforme o provedor configurado, com saída estruturada `PriceTimingReport` e campos extras proibidos. Se o Google responder que o modelo 2.5 não existe mais, tenta o `GEMINI_MODEL` já configurado no projeto; falhas de autenticação ou cota não acionam essa troca. As métricas são calculadas com `Decimal` e não podem ser substituídas pelo modelo; a confiança tem limite conforme a quantidade de datas observadas. A justificativa é interpretativa, sem promessas de preços futuros.
+## Cobertura e indisponibilidade
 
-Falhas de credencial, provedor, validação ou timeout usam uma leitura estatística explicitamente identificada por `analysis_source="statistical_fallback"`. A indisponibilidade do serviço de agentes retorna 503, com botão para tentar novamente na interface. Consultar ou atualizar esta seção não cria tarefas de negociação, chamadas ou mensagens a fornecedores.
+Os períodos de 30/60/90 dias filtram somente datas existentes na fonte. A página pode disponibilizar, por exemplo, 40 dias; selecionar 90 dias **não cria os 50 dias restantes**. O intervalo disponibilizado pelo site e a quantidade de datas na janela aparecem na tela. Não há simulação, interpolação de datas ou mistura silenciosa com cotações do SQLite.
 
-## Verificação
+A série real exige pelo menos sete datas distribuídas por sete dias para calcular tendência, percentil e recomendação. Sem preço atual, é possível consultar o histórico, mas a comparação de timing fica indisponível. A análise usa médias dos menores preços diários, com cálculos `Decimal`; a mínima e a máxima são observações da fonte. Empates usam o ponto médio do percentil.
 
-- Backend: `python -m pytest tests/test_price_timing_agent.py -q` dentro de `backend`.
-- API: `npm run test:price-history` dentro de `api` (SQLite temporário e agente stub, sem contatos reais).
-- Frontend: `npm run typecheck` e `npm run build` dentro de `frontend`.
+Páginas sem histórico, mudanças de formato, HTTP 403/429 e timeouts geram um estado de indisponibilidade, sem números artificiais. Não se tenta contornar bloqueios ou desafios. Somente URLs HTTPS de produtos em `www.buscape.com.br` são aceitas; redirecionamentos são validados e a leitura tem limites de tempo e tamanho. A integração depende do formato público do site, não de uma API oficial contratada.
+
+## Agente
+
+`PriceTimingAgent` permanece isolado dos agentes de pesquisa e negociação. Usa saída estruturada `PriceTimingReport`, campos extras proibidos e métricas calculadas sem permitir que o modelo substitua os números. Quando Gemini 2.5 retorna modelo inexistente, tenta `GEMINI_MODEL`; erros de autenticação ou cota não acionam essa troca. Falhas da IA usam uma leitura estatística identificada, baseada na mesma série real. Consultar o gráfico não cria negociações, chamadas ou mensagens.
+
+## Testes
+
+- Backend: `python -m pytest tests/test_price_timing_agent.py tests/test_buscape_history.py -q` em `backend`.
+- API: `npm run test:price-history` em `api` (SQLite temporário e agente stub).
+- Cards: `node --experimental-strip-types scripts/economic-costs-test.mjs` em `frontend` com Node 22.
+- Frontend: `npm run typecheck` e `npm run build`.
+
+Os arquivos em `backend/tests/fixtures/buscape-*.html` são recortes dos dados públicos capturados em 08/11/2026, usados somente nos testes de regressão do parser. A aplicação em execução consulta o site; não utiliza essas fixtures.
