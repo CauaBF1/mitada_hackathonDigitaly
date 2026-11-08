@@ -161,7 +161,7 @@ try {
   await json(`/requests/${second}/decision`,{quote_id:chosen.id,version:current.version});
   assert.equal((await voice(second,'after-decision')).body.ignored,'decided');
   assert.equal((await wa(inbound('after-decision','5511999999999',parent))).body.ignored,'decided');
-  // WhatsApp-first contact uses a durable 30-second deadline and preserves channel identity.
+  // WhatsApp-first contact uses a durable 60-second deadline and preserves channel identity.
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE supplier_id='teste-whatsapp'").get().n,0);
   await stop(); await start('+5517991636725', true);
   const sendCountBefore = sends.length;
@@ -172,7 +172,7 @@ try {
   const firstFlow=db.prepare('SELECT * FROM whatsapp_contact_flow WHERE request_id=?').get(firstId);
   assert.equal(sends.length,sendCountBefore+1); assert.equal(voiceAttempts.length,0,'new contact flow must not initiate voice');
   const scheduledAt=Date.parse(firstFlow.next_check_at), sentAt=Date.parse(db.prepare('SELECT created_at FROM whatsapp_delivery WHERE request_id=?').get(firstId).created_at);
-  assert.ok(scheduledAt-sentAt>=29000 && scheduledAt-sentAt<=35000);
+  assert.ok(scheduledAt-sentAt>=59000 && scheduledAt-sentAt<=65000);
   assert.equal((await json(`/requests/${firstId}`)).body.whatsapp_pending.length,0);
   const firstMsg=db.prepare('SELECT message_id FROM whatsapp_delivery WHERE request_id=?').get(firstId).message_id;
   assert.equal((await wa(inbound('recognized-reply','5517991636725',firstMsg,'Confirmo a cotação'))).body.status,'processed');
@@ -202,7 +202,7 @@ try {
   assert.equal(timedOutRequest.status,201); const secondId=timedOutRequest.body.id;
   await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(secondId)?.status==='wa_waiting');
   const secondMessageCount=sends.length;
-  // Move the persisted deadline into the past to model elapsed 30 seconds without sleeping.
+  // Move the persisted deadline into the past to model elapsed 60 seconds without sleeping.
   db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=? WHERE request_id=?').run(new Date(Date.now()-1).toISOString(),secondId);
   await stop(); await start('+5517991636725', true);
   await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(secondId)?.status==='done');
@@ -230,7 +230,7 @@ try {
   sendDelayMs=0; await new Promise(resolve=>setTimeout(resolve,600));
   assert.equal(db.prepare('SELECT 1 FROM whatsapp_contact_flow WHERE request_id=?').get(deletedId),undefined);
   assert.equal(telegramSends.length,beforeDelete,'deleted requests cannot trigger fallback during delayed acknowledgement');
-  console.log('PASS WhatsApp-first routing: exact persisted 30s deadline, reply cancellation including reply/cancel during delayed ACK, deletion during delayed ACK, no voice start, restart-safe no-resend for accepted/uncertain WA, authorized Telegram fallback, channel identity, deletion');
+  console.log('PASS WhatsApp-first routing: exact persisted 60s deadline, reply cancellation including reply/cancel during delayed ACK, deletion during delayed ACK, no voice start, restart-safe no-resend for accepted/uncertain WA, authorized Telegram fallback, channel identity, deletion');
   console.log('PASS WhatsApp HTTP: auth, voice callbacks, dedupe, partial quotes/pending, pre-price state, supplier isolation, ambiguous replies, restart/retry/exhaustion, uncertain delivery, immutable decisions');
 } catch(e) { console.error(e); console.error(logs); process.exitCode=1; }
 finally { if(child?.exitCode===null) await stop(); db?.close(); await new Promise(resolve=>fake.close(resolve)); rmSync(dir,{recursive:true,force:true}); }

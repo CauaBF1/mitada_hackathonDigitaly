@@ -300,8 +300,8 @@ export class WhatsAppService {
             .run(req.id, row.supplier_id, row.request_version ?? null);
           return;
         }
-        const rawTimeout = Number(process.env.WHATSAPP_TELEGRAM_FALLBACK_SECONDS || 30);
-        const timeoutMs = (Number.isInteger(rawTimeout) ? Math.min(3600, Math.max(1, rawTimeout)) : 30) * 1000;
+        const rawTimeout = Number(process.env.WHATSAPP_TELEGRAM_FALLBACK_SECONDS || 60);
+        const timeoutMs = (Number.isInteger(rawTimeout) ? Math.min(3600, Math.max(1, rawTimeout)) : 60) * 1000;
         const error = sent.status === 'failed' ? 'Evolution rejeitou o envio WhatsApp.' : sent.status === 'uncertain' ? 'Envio WhatsApp sem confirmação; não será repetido.' : null;
         const transitioned = this.db.prepare(`UPDATE whatsapp_contact_flow SET status='wa_waiting',error=?,next_check_at=?
           WHERE request_id=? AND supplier_id=? AND status='ready' AND request_version IS ?
