@@ -75,7 +75,7 @@ Repita o mesmo `demo-in-2`: retorna `duplicate` e não cria mensagem/proposta/en
 
 Para testar o filtro do próprio bot, altere o payload para `fromMe: true`: retorna `ignored: from-me`. Sem o header secreto, retorna HTTP 401. Grupos, mídias sem texto, remetentes desconhecidos e outras instâncias são ignorados.
 
-Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. Nesse caso, a Evolution envia `message.extendedTextMessage.contextInfo.stanzaId` com o ID original, além de `extendedTextMessage.text`. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos. Para conversas `@lid`, o telefone é obtido de `key.remoteJidAlt`, quando ele contém um JID válido `@s.whatsapp.net`; JIDs `@lid` sem esse telefone e grupos continuam sendo ignorados.
+Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. A referência pode vir em `data.message.extendedTextMessage.contextInfo.stanzaId` ou em `data.contextInfo.stanzaId`, inclusive quando o texto está em `data.message.conversation`. Ambos os formatos são aceitos. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos. Para conversas `@lid`, o telefone é obtido de `key.remoteJidAlt`, quando ele contém um JID válido `@s.whatsapp.net`; JIDs `@lid` sem esse telefone e grupos continuam sendo ignorados.
 
 ## Conectar o encerramento de voz real
 

@@ -274,7 +274,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     if (!response.ok) return new NextResponse(await response.text(), { status: response.status });
     const rows: any = await response.json();
     if (!Array.isArray(rows)) return json({ detail: "Histórico de mensagens incompatível." }, 502);
-    return json(rows.map((message: any) => ({ id: String(message.id), request_id: chat[1], supplier_domain: message.supplier_domain || "", sender_type: message.sender_type, text: message.content, timestamp: message.created_at, delivery_status: message.delivery_status || "" })));
+    return json(rows.map((message: any) => ({ id: String(message.id), request_id: chat[1], supplier_domain: message.supplier_domain || "", sender_type: message.sender_type, text: message.content, timestamp: message.created_at, channel: message.channel || "telegram", delivery_status: message.delivery_status || "" })));
   }
   if (request.method === "POST" && chat) {
     const response = await upstream(`requests/${chat[1]}/contact-supplier`, { method: "POST", body: await request.text() });

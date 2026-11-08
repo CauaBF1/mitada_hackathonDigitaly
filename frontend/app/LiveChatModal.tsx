@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { requestJson } from "./contracts";
 
-interface ChatMessage { id: string; request_id: string; supplier_domain: string; sender_type: "AI" | "SUPPLIER"; text: string; timestamp: string; delivery_status: string }
+interface ChatMessage { id: string; request_id: string; supplier_domain: string; sender_type: "AI" | "SUPPLIER"; text: string; timestamp: string; delivery_status: string; channel?: "telegram" | "whatsapp" }
 export default function LiveChatModal({ requestId, sandbox, close }: { requestId: string | null; sandbox: boolean; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -31,8 +31,10 @@ export default function LiveChatModal({ requestId, sandbox, close }: { requestId
     void load(); const timer = setInterval(() => { if (!document.hidden) void load(); }, 3000);
     return () => { disposed = true; clearInterval(timer); controller?.abort(); };
   }, [requestId]);
+  const channels = [...new Set(messages.map(message => message.channel || "telegram"))];
+  const channelLabel = channels.map(channel => channel === "whatsapp" ? "WhatsApp" : "Telegram").join(" e ") || (sandbox ? "Telegram" : "Conversa");
   return <dialog ref={dialog} onCancel={close} aria-labelledby="chat-title" className="w-[calc(100%-2rem)] max-w-2xl rounded-2xl border-0 bg-white p-0 text-slate-900 shadow-2xl">
-    <header className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white"><div><h2 id="chat-title" className="font-semibold">{sandbox ? "SANDBOX" : "Negociação"} #{requestId} · Telegram</h2><p className="mt-1 text-xs text-blue-100">Roberto × fornecedores · atualização a cada 3 segundos</p></div><button onClick={close} aria-label="Fechar conversa" className="rounded-lg p-2 hover:bg-white/10"><X size={18} /></button></header>
+    <header className="flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-400 p-5 text-white"><div><h2 id="chat-title" className="font-semibold">{sandbox ? "SANDBOX" : "Negociação"} #{requestId} · {channelLabel}</h2><p className="mt-1 text-xs text-blue-100">Roberto × fornecedores · atualização a cada 3 segundos</p></div><button onClick={close} aria-label="Fechar conversa" className="rounded-lg p-2 hover:bg-white/10"><X size={18} /></button></header>
     {error && <p role="alert" className="p-3 text-xs text-amber-700">{error} As mensagens recebidas permanecem visíveis.</p>}
     <div ref={scroll} role="log" aria-label="Conversa com fornecedores" aria-live="polite" aria-relevant="additions" className="h-[55vh] space-y-4 overflow-y-auto bg-slate-50 p-5">
       {messages.map(message => <div key={message.id} className={`flex ${message.sender_type === "AI" ? "justify-start" : "justify-end"}`}><article className={`max-w-[88%] rounded-2xl px-4 py-3 ${message.sender_type === "AI" ? "rounded-tl-sm bg-blue-600 text-white" : "rounded-tr-sm bg-slate-200 text-slate-800"}`}><p className="mb-2 break-all text-[10px] font-semibold opacity-80">{message.sender_type === "AI" ? "Roberto → " : (sandbox ? "Você como fornecedor · " : "Fornecedor · ")}{message.supplier_domain}</p><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.text}</p><p className="mt-2 text-[9px] opacity-70">{new Date(message.timestamp).toLocaleString("pt-BR")} · {({ sent: "Enviada", received: "Recebida", sending: "Enviando", unconfirmed: "Envio não confirmado" } as Record<string, string>)[message.delivery_status] || message.delivery_status}</p></article></div>)}

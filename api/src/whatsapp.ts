@@ -152,7 +152,7 @@ export class WhatsAppService {
     const number = jid.split('@')[0], updateId = digest(body.instance, number, externalId);
     const previous = this.db.prepare('SELECT status FROM whatsapp_updates WHERE id=?').get(updateId) as any;
     if (previous) return { ok: true, duplicate: true, status: previous.status };
-    const parent = data.message?.extendedTextMessage?.contextInfo?.stanzaId;
+    const parent = data.message?.extendedTextMessage?.contextInfo?.stanzaId ?? data.contextInfo?.stanzaId;
     let mapping: any = typeof parent === 'string' ? this.db.prepare(`SELECT c.* FROM whatsapp_contacts c JOIN whatsapp_delivery d
       ON d.request_id=c.request_id AND d.number=c.number WHERE c.number=? AND d.message_id=?`).get(number, parent) : null;
     if (typeof parent === 'string' && !mapping) return { ok: true, ignored: 'unknown-reply' };

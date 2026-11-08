@@ -127,7 +127,10 @@ try {
   const second = await create(); await voice(second,'second-call');
   const parent=db.prepare('SELECT message_id FROM whatsapp_delivery WHERE request_id=?').get(second).message_id;
   assert.equal((await wa(inbound('ambiguous'))).body.ignored,'ambiguous-request');
-  parseMode='before-price'; await wa(inbound('before-price','5511999999999',parent));
+  const quotedConversation = inbound('before-price');
+  quotedConversation.data.contextInfo = { stanzaId: parent };
+  quotedConversation.data.message = { conversation: 'Cotação' };
+  parseMode='before-price'; assert.equal((await wa(quotedConversation)).body.status,'processed');
   assert.equal((await json(`/requests/${second}`)).body.quotes.length,0);
   parseMode='price-only'; await wa(inbound('price','5511999999999',parent));
   assert.equal((await json(`/requests/${second}`)).body.quotes[0].eligible,true);
@@ -141,6 +144,9 @@ try {
   assert.equal(db.prepare("SELECT attempts FROM whatsapp_updates ORDER BY rowid DESC LIMIT 1").get().attempts,2);
   const history=(await json(`/requests/${second}/messages`)).body;
   assert.ok(history.some(m=>m.sender_type==='AI')); assert.ok(history.some(m=>m.sender_type==='SUPPLIER'));
+  assert.ok(history.every(m=>m.channel==='whatsapp'));
+  assert.ok(history.some(m=>m.sender_type==='AI' && m.delivery_status==='sent'));
+  assert.ok(history.some(m=>m.sender_type==='SUPPLIER' && m.delivery_status==='received'));
   // Network ambiguity never triggers automatic duplicate sends.
   sendMode='disconnect'; const uncertain=await voice(second,'uncertain'); assert.equal(uncertain.body.fallback.status,'uncertain');
   const count=sends.length; await voice(second,'uncertain'); assert.equal(sends.length,count);
