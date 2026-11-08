@@ -6,7 +6,7 @@ const base = () => (process.env.API_URL || "http://127.0.0.1:4000").replace(/\/$
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 async function upstream(path: string, init: RequestInit = {}) {
-  const timeout = path.endsWith("/reputation-refresh") ? 40000 : 12000;
+  const timeout = (path.endsWith("/reputation-refresh") || path.includes("/price-history")) ? 40000 : 12000;
   return fetch(`${base()}/${path.replace(/^\//, "")}`, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout), headers: { "Content-Type": "application/json", ...init.headers } });
 }
 function asRun(row: any) {
@@ -205,6 +205,12 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const origin = request.headers.get("origin");
   if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
   const endpoint = (await context.params).path.join("/");
+  if (request.method === "GET" && /^procurement\/[a-zA-Z0-9-]+\/price-history$/.test(endpoint)) {
+    try {
+      const response = await upstream(`${endpoint}${request.nextUrl.search}`);
+      return json(await response.json(), response.status);
+    } catch { return json({ detail: "Não foi possível carregar o histórico. Tente atualizar a análise." }, 503); }
+  }
   if (request.method === "GET" && endpoint === "auth/config") {
     try {
       const response = await upstream("auth/config");

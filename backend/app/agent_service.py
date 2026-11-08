@@ -24,6 +24,7 @@ from .agent_intelligence import ConversationTerms, conversation_intelligence, di
 from .config import settings
 from .scraper_tools import MarketScraper, Reputation, discover_market
 from .routers.voice_webhook import router as voice_router
+from .price_timing_agent import router as price_timing_router
 
 
 class TaskRequest(BaseModel):
@@ -387,6 +388,7 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="Nexo internal agents", lifespan=lifespan)
 app.include_router(voice_router)
+app.include_router(price_timing_router)
 
 
 @app.get("/health")

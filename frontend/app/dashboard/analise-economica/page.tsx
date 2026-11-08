@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BarChart3, CircleDollarSign, RefreshCw, Scale, TrendingDown } from "lucide-react";
 import WorkspaceSidebar from "../../WorkspaceSidebar";
+import PriceTimingSection from "./components/PriceTimingSection";
 import { brl, requestJson, type AuthUser, type Dashboard } from "../../contracts";
 
 export default function EconomicAnalysisPage() {
@@ -66,6 +67,7 @@ export default function EconomicAnalysisPage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7"><h2 className="text-lg font-bold">Cotações encontradas vs. opção selecionada</h2><p className="mt-2 text-xs text-slate-500">Preços unitários em BRL. Frete e taxas são considerados no custo total, acima.</p><div className="mt-6 space-y-5">{comparisons.map(item => <div key={item.id}><div className="mb-2 flex flex-wrap justify-between gap-2 text-xs"><span className={item.chosen ? 'font-bold text-[#415AFF]' : 'text-slate-600'}>{item.label}</span><span className="font-semibold">{brl(item.price)}</span></div><div className="h-3 rounded-full bg-slate-100"><div className={`h-full rounded-full ${item.chosen ? 'bg-[#415AFF]' : 'bg-sky-300'}`} style={{ width: `${Number(item.price) / maxPrice * 100}%` }} /></div></div>)}</div></section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7"><h2 className="flex items-center gap-2 text-lg font-bold"><Scale size={20} className="text-[#415AFF]" />Contexto da decisão</h2><dl className="mt-5 grid gap-4 sm:grid-cols-3"><div><dt className="text-xs text-slate-500">Prazo final</dt><dd className="mt-1 font-semibold">{audit.delivery_days} dias · {audit.delivery_day_type === 'business' ? 'úteis' : audit.delivery_day_type === 'calendar' ? 'corridos' : 'tipo não informado'}</dd></div><div><dt className="text-xs text-slate-500">Quantidade auditada</dt><dd className="mt-1 font-semibold">{audit.quantity} unidades</dd></div><div><dt className="text-xs text-slate-500">ReclameAqui</dt><dd className="mt-1 text-sm font-semibold">{selected.reputations.find(reputation => reputation.verified && reputation.supplier_domain === selected.quote?.supplier_domain)?.score ?? 'Nota não verificada'}</dd></div></dl><p className="mt-5 text-sm leading-relaxed text-slate-600">{audit.justification}</p><p className="mt-4 text-xs leading-relaxed text-slate-400">Hard Savings e Cost Avoidance usam referências diferentes para a mesma decisão e não devem ser somados. Valores negociados não representam pagamento realizado.</p></section>
       </>}
+      {data && <PriceTimingSection key={selected?.id ?? "all"} requests={data.runs.filter(row => row.mode !== "sandbox")} defaultRequestId={selected?.id} />}
     </main>
   </div>;
 }

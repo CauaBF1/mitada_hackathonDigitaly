@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { HistoryService } from './history';
 import { WhatsAppService, webhookAuth } from './whatsapp';
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Injectable, NotFoundException, Param, Post, Query, UnauthorizedException, Module, OnModuleInit, Inject } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, Injectable, NotFoundException, Param, Post, Query, UnauthorizedException, ServiceUnavailableException, Module, OnModuleInit, Inject } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import Database from 'better-sqlite3';
 import { randomBytes, randomUUID, scryptSync, createHmac, timingSafeEqual, createHash } from 'node:crypto';
@@ -149,6 +149,35 @@ function verifyJwt(token: string): Record<string, any> {
   }
 
   get(id: string) { const r = db.prepare('SELECT * FROM requests WHERE id=?').get(id) as any; if (!r) throw new NotFoundException('Solicitação não encontrada'); return this.expand(r); }
+  async priceHistory(id: string, daysText?: string) {
+    const days = daysText === undefined ? 60 : Number(daysText);
+    if (![30, 60, 90].includes(days)) throw new BadRequestException('Período deve ser 30, 60 ou 90 dias.');
+    const request = this.get(id);
+    const selectedId = request.preferred_market_quote_id || request.decision || request.completed_quote_id;
+    const chosen = request.quotes.find((quote: any) => quote.id === selectedId);
+    const reference = chosen || request.quotes[0];
+    // Same product, specification and quantity only; all comparisons are unit prices.
+    // Never turn observations for a different variant/volume into a price history.
+    const rows = db.prepare(`SELECT q.created_at,q.unit_cents,q.supplier FROM quotes q
+      JOIN requests r ON r.id=q.request_id
+      WHERE lower(trim(r.product))=lower(trim(?)) AND r.specs=? AND r.qty=?
+      AND q.unit_cents>0 AND date(q.created_at)>=date('now',?) AND date(q.created_at)<=date('now')
+      ORDER BY q.created_at DESC LIMIT 10000`).all(request.product, JSON.stringify(request.specs), request.qty, `-${days-1} days`) as any[];
+    try {
+      const response = await fetch(`${process.env.AGENT_URL || 'http://agents:8000'}/price-timing/analyze`, {
+        method: 'POST', headers: {'content-type':'application/json', authorization:`Bearer ${process.env.INTERNAL_API_TOKEN || ''}`},
+        body: JSON.stringify({item_name: request.product, days,
+          selected_price: reference ? (reference.unit_cents/100).toFixed(2) : null,
+          price_source: chosen ? (request.preferred_market_quote_id || request.decision ? 'selected' : 'negotiated') : reference ? 'reference' : 'unavailable',
+          history: rows.map(row => ({date: row.created_at.slice(0,10), price:(row.unit_cents/100).toFixed(2), supplier:row.supplier}))}),
+        signal: AbortSignal.timeout(38000),
+      });
+      if (!response.ok) throw new Error('price timing unavailable');
+      return await response.json();
+    } catch {
+      throw new ServiceUnavailableException('Análise temporal indisponível agora. Atualize para tentar novamente.');
+    }
+  }
   private exists(id: string) { return id === 'system' || !!db.prepare('SELECT 1 FROM requests WHERE id=?').get(id); }
   remove(id: string) {
     return db.transaction(() => {
@@ -447,6 +476,7 @@ function verifyJwt(token: string): Record<string, any> {
   @Delete('requests/:id') @HttpCode(200) remove(@Param('id') id:string){return this.b.remove(id);}
   @Post('requests/:id/repeat') repeat(@Param('id') id:string,@Body() body:any){return this.b.repeat(id,body);}
   @Get('requests/:id') detail(@Param('id') id:string){return this.b.get(id);}
+  @Get('procurement/:id/price-history') priceHistory(@Param('id') id:string,@Query('days') days?:string){return this.b.priceHistory(id,days);}
   @Get('requests/:id/messages') messages(@Param('id') id:string){return this.b.messages(id);}
   @Post('requests/:id/contact-supplier') contact(@Param('id') id:string,@Headers('idempotency-key') key?:string){return this.b.contactSupplier(id,key);}
   /** Fluxo duplex: (1) liga via Vapi → (2) follow-up Telegram automático pós-chamada */

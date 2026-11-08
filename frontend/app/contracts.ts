@@ -31,9 +31,35 @@ export async function requestJson(path: string, init: RequestInit = {}): Promise
   const token = typeof window !== "undefined" ? window.localStorage.getItem("nexo_token") : null;
   const headers = new Headers(init.headers);
   if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
-  const timeout = path.endsWith("/reputation-refresh") ? 40000 : path.startsWith("/integrations/") || path === "/suppliers/invite" ? 30000 : 12000;
+  const timeout = (path.endsWith("/reputation-refresh") || path.includes("/price-history")) ? 45000 : path.startsWith("/integrations/") || path === "/suppliers/invite" ? 30000 : 12000;
   const response = await fetch(`${API}${path}`, { ...init, headers, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout) });
   const body = await response.json().catch(() => null);
   if (!response.ok) throw new Error(typeof body?.detail === "string" ? body.detail : typeof body?.message === "string" ? body.message : `Não foi possível concluir a operação (${response.status}).`);
   return body;
+}
+
+export interface PriceHistoryPoint { date: string; price: Money; supplier: string }
+export interface PriceTimingReport {
+  trend: "FALLING" | "STABLE" | "RISING";
+  verdict: "BUY_NOW" | "WAIT" | "MONITOR";
+  savings_vs_historical_avg_pct: string;
+  lowest_historical_price: Money;
+  highest_historical_price: Money;
+  current_price_percentile: number;
+  confidence_score: number;
+  timing_justification: string;
+}
+export interface PriceHistoryResponse {
+  history: PriceHistoryPoint[];
+  observed_history: PriceHistoryPoint[];
+  analysis: PriceTimingReport | null;
+  historical_average: Money | null;
+  selected_price: Money | null;
+  selected_date: string;
+  price_source: "selected" | "negotiated" | "reference" | "unavailable";
+  data_source: "persisted" | "simulation" | "unavailable";
+  analysis_source: "llm" | "statistical_fallback" | "insufficient_data";
+  days: number;
+  real_observation_count: number;
+  message: string;
 }
