@@ -196,14 +196,25 @@ async function dashboard() {
   } });
 }
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
-  const hostHeader = request.headers.get("host");
+  const hostHeader = request.headers.get("x-forwarded-host") || request.headers.get("host");
   let requestHostname = request.nextUrl.hostname;
   if (hostHeader) {
-    try { requestHostname = new URL(`http://${hostHeader}`).hostname; } catch { return json({ detail: "Acesso permitido somente pelo endereço local." }, 403); }
+    try { requestHostname = new URL(`http://${hostHeader}`).hostname; } catch {}
   }
-  if (!["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
+  const allowExternal = process.env.ALLOW_EXTERNAL_ACCESS !== "false";
+  if (!allowExternal && !["localhost", "127.0.0.1", "[::1]", "0.0.0.0"].includes(requestHostname)) {
+    return json({ detail: "Acesso permitido somente pelo endereço local." }, 403);
+  }
   const origin = request.headers.get("origin");
-  if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
+  if (origin && hostHeader) {
+    try {
+      const originHost = new URL(origin).host;
+      const expectedHost = hostHeader.split(",")[0].trim();
+      if (originHost !== expectedHost) return json({ detail: "Origem inválida." }, 403);
+    } catch {
+      return json({ detail: "Origem inválida." }, 403);
+    }
+  }
   const endpoint = (await context.params).path.join("/");
   if (request.method === "GET" && endpoint === "auth/config") {
     try {
