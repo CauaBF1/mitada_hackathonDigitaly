@@ -40,7 +40,7 @@ const agent = createServer(async (req, res) => {
     const input=JSON.parse(raw), confirmation=/^(sim|confirmo)$/i.test(input.message.trim());
     const result=confirmation
       ? {intent:'quote_confirmation',reply:'Cotação confirmada.',terms:null,explicit_confirmation:true,terms_changed:false,purchase_acceptance:'unclear'}
-      : {intent:'quotation',reply:'Obrigado! Anotei: Fornecedor Teste, preço unitário R$ 50.00, frete R$ 1.00, taxas R$ 0.00, prazo 2 dias e disponibilidade de 4 unidades. Confirma essas condições?',terms:{supplier:'Fornecedor Teste',unit_cents:5000,shipping_cents:100,fees_cents:0,lead_days:2,available_qty:4,product_confirmed:true,destination_confirmed:true,conditions:'Termos firmes.'},explicit_confirmation:false,terms_changed:true,purchase_acceptance:'unclear'};
+      : {intent:'quotation',offer_is_final:true,reply:'Obrigado! Anotei: Fornecedor Teste, preço unitário R$ 50.00, frete R$ 1.00, taxas R$ 0.00, prazo 2 dias e disponibilidade de 4 unidades. Confirma essas condições?',terms:{supplier:'Fornecedor Teste',unit_cents:5000,shipping_cents:100,fees_cents:0,lead_days:2,available_qty:4,product_confirmed:true,destination_confirmed:true,conditions:'Termos firmes.'},explicit_confirmation:false,terms_changed:true,purchase_acceptance:'unclear'};
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
   } else if(req.url==='/tasks') res.writeHead(202).end('{"accepted":true}');
   else res.writeHead(404).end('{}');

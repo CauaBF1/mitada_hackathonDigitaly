@@ -109,9 +109,28 @@ Os testes herdados em `backend/tests` incluem contratos do desenho FastAPI anter
 
 Os módulos históricos de voz em Python usam outro modelo de dados e não são montados pelo serviço `agents`. O NestJS agora recebe eventos de encerramento de voz e executa o fallback para WhatsApp; veja a configuração abaixo.
 
-## WhatsApp e fallback de voz
+## Voz, WhatsApp e Telegram no Docker
 
-Configuração da Evolution API v2, QR Code, webhooks e exemplos de teste com `curl`: [docs/whatsapp.md](docs/whatsapp.md).
+O fluxo começa pelo convite de chamada WebRTC em `/call/[id]`. Sem atendimento em 120 segundos, solicita a cotação por texto no WhatsApp. Após mais 60 segundos sem resposta, aciona o Telegram. Uma resposta reconhecida fixa o canal antes da interpretação e cancela o fallback. Durante uma chamada ativa não há fallback; sua transcrição é enviada ao WhatsApp ao encerrar. A negociação por texto usa a mesma meta de 20% de desconto e até três contrapropostas, seguida de confirmação explícita da cotação. A compra continua exigindo decisão humana.
+
+Configure no `.env` `VAPI_PUBLIC_KEY` (chave pública), `VAPI_ASSISTANT_ID`, `INTERNAL_API_TOKEN` e as credenciais dos canais. A chave privada `VAPI_API_KEY` fica no servidor. Para uso no próprio computador:
+
+```bash
+docker compose up -d --build
+```
+
+Abra `http://localhost:3000`. Para parear, execute `docker compose --profile pairing up -d --build whatsapp-pairing` e abra `http://127.0.0.1:8766`. A Evolution precisa estar pareada com a conta do WhatsApp; os volumes preservam a sessão e as cotações. O webhook WhatsApp é configurado automaticamente para `http://api:4000/webhook/whatsapp`, autenticado com `WHATSAPP_WEBHOOK_SECRET`. Nenhum relay Python no host é necessário.
+
+Para testar a chamada em outro aparelho, o navegador precisa de HTTPS e permissão de microfone. Use `PUBLIC_APP_URL=https://seu-dominio` apontando para o frontend ou inicie o túnel temporário opcional:
+
+```bash
+docker compose -f compose.yaml -f compose.public.yaml up -d --build
+docker compose -f compose.yaml -f compose.public.yaml logs tunnel
+```
+
+O endereço HTTPS aparece nos logs do túnel. A API descobre esse endereço pela rede interna, usa-o nos próximos convites e registra o webhook Telegram. O endereço temporário muda ao recriar o túnel; use um domínio estável para manter links antigos válidos. O túnel publica a aplicação; habilite-o apenas durante a demonstração. Sem chave pública/assistente de voz, o fluxo informa a configuração ausente e começa no WhatsApp.
+
+Validação sem envios reais: `npm run test:whatsapp` e `npm run test:voice` em `api/`. Os testes usam SQLite temporário e provedores HTTP simulados, incluindo reinícios, prazos persistidos, cancelamento por resposta, transcrição e confirmação final. Configuração da Evolution API v2 e pareamento: [docs/whatsapp.md](docs/whatsapp.md).
 
 ## Histórico operacional
 

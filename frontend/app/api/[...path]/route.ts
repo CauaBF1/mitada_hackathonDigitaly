@@ -161,7 +161,7 @@ function asRun(row: any) {
     preferred_market_at: row.preferred_market_at || null,
     selected_product_url: chosenUrl,
     quote: chosen ? {
-      channel: chosen.channel === "whatsapp" || String(chosen.event_id || "").startsWith("whatsapp:") ? "whatsapp" : chosen.channel === "telegram" || chosen.supplier_chat_id != null || !chosen.source_url ? "telegram" : "market",
+      channel: String(chosen.event_id || "").startsWith("voice:") ? "voice" : chosen.channel === "whatsapp" || String(chosen.event_id || "").startsWith("whatsapp:") ? "whatsapp" : chosen.channel === "telegram" || chosen.supplier_chat_id != null || !chosen.source_url ? "telegram" : "market",
       supplier_id: chosen.supplier_id == null ? (chosen.supplier_chat_id == null ? null : `telegram:${chosen.supplier_chat_id}`) : String(chosen.supplier_id),
       additional_costs: null, initial_additional_costs: null, supplier_domain: (() => { try { return new URL(chosen.source_url).hostname.replace(/^www\./, ""); } catch { return null; } })(),
       supplier_name: chosen.supplier, product_name: String(chosen.conditions || "").split(" | ")[0] || row.product,

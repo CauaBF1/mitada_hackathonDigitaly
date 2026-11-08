@@ -114,6 +114,18 @@ services:
     depends_on:
       api:
         condition: service_healthy
+  # Optional localhost-only pairing UI; credentials never reach the browser.
+  whatsapp-pairing:
+    profiles: [pairing]
+    build:
+      context: ./backend
+    command: ["python", "/run/whatsapp_pair.py", "--host", "0.0.0.0", "--port", "8766", "--url", "http://evolution:8080"]
+    environment:
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
+      WHATSAPP_INSTANCE_NAME: ${WHATSAPP_INSTANCE_NAME:-nexo}
+    volumes: ["./scripts/whatsapp_pair.py:/run/whatsapp_pair.py:ro,z"]
+    ports: ["127.0.0.1:8766:8766"]
+    depends_on: [evolution]
   # Evolution keeps its own infrastructure; the business API continues using SQLite.
   evolution:
     image: localhost/nexo-evolution:2.3.7-pairing-1

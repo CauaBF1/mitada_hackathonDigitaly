@@ -282,7 +282,8 @@ export class WhatsAppService {
     if (typeof id !== 'string' || !id || typeof supplierId !== 'string' || !supplierId || typeof callId !== 'string' || !callId || callId.length > 200)
       throw new BadRequestException('Evento de voz requer request_id, supplier_id e call_id.');
     const req = this.getRequest(id);
-    if(req.status==='concluida')return {ok:true,ignored:'quote-completed'};
+    if(req.status==='decidida')return {ok:true,ignored:'decided'};
+    if(req.status==='concluida' && !req.quotes.some((q:any)=>q.id===req.completed_quote_id && q.event_id===`voice:${callId}`))return {ok:true,ignored:'quote-completed'};
     const textWinner=this.db.prepare('SELECT channel FROM supplier_response_winner WHERE request_id=?').get(id) as any;
     if(textWinner)return {ok:true,ignored:'text-contact-already-active',channel:textWinner.channel};
     if (message?.type === 'tool-calls') {
@@ -389,7 +390,7 @@ export class WhatsAppService {
     if (contact && transcript.length) {
       const text = `Transcrição da ligação sobre ${req.product}:\n` + transcript.map(turn => `${turn.sender_type === 'AI' ? 'Nexo' : 'Fornecedor'}: ${turn.content}`).join('\n');
       for (let offset=0;offset<text.length;offset+=3500)
-        await this.sendWhatsApp(id,contact.number,text.slice(offset,offset+3500),`voice-transcript:${callId}:${offset}`).catch(()=>{});
+        await this.sendWhatsApp(id,contact.number,text.slice(offset,offset+3500),`voice-transcript:${callId}:${digest(text)}:${offset}`).catch(()=>{});
     }
     if (call.quote_completed) {
       this.db.prepare("UPDATE whatsapp_contact_flow SET status='done',next_check_at=NULL,error=NULL WHERE request_id=?").run(id);

@@ -6,6 +6,7 @@
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/main.ts",
+    "test:voice": "npm run build && node scripts/voice-webrtc-smoke.mjs && node scripts/contact-policy.mjs",
     "test:whatsapp": "npm run build && node scripts/whatsapp-smoke.mjs",
     "test:price-history": "npm run build && node scripts/price-history-smoke.mjs",
     "test:purchase-recommendation": "npm run build && node scripts/purchase-recommendation.mjs && node scripts/purchase-recommendation-smoke.mjs"

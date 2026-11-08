@@ -2,6 +2,7 @@
 """Local QR viewer: keeps Evolution credentials server-side and refreshes QR changes."""
 import argparse
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,10 +22,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file', type=Path, default=Path(__file__).resolve().parent.parent / '.env')
     parser.add_argument('--port', type=int, default=8766)
+    parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--url', default='http://127.0.0.1:8080')
     args = parser.parse_args()
-    config = {}
-    for line in args.env_file.read_text().splitlines():
+    config = dict(os.environ)
+    lines = args.env_file.read_text().splitlines() if args.env_file.exists() else []
+    for line in lines:
         if '=' in line and not line.lstrip().startswith('#'):
             key, value = line.split('=', 1)
             config[key.strip()] = value.strip().strip('\"\'')
@@ -72,7 +75,7 @@ def main():
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f'Pareamento local: http://127.0.0.1:{args.port}', flush=True)
     try:
         server.serve_forever()

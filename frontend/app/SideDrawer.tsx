@@ -9,7 +9,7 @@ import RequestActions from "./RequestActions";
 type RecommendationCandidate = {
   offer_id: string;
   supplier: string;
-  channel: "telegram" | "whatsapp" | "market";
+  channel: "telegram" | "whatsapp" | "voice" | "market";
   source_url: string | null;
   tco_cents: number | null;
   comparison_amount_cents: number | null;
@@ -316,7 +316,7 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
             </span>
           </div>
           <dl className="mt-5 space-y-3 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor ({row.quote?.channel === "whatsapp" ? "WhatsApp" : "Telegram"})</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor ({row.quote?.channel === "whatsapp" ? "WhatsApp" : row.quote?.channel === "voice" ? "Voz" : "Telegram"})</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-slate-300">Preço unitário final × {row.qty}</dt><dd className="numeric">{audit ? `${brl(audit.final_price)} × ${row.qty}` : row.quote?.final_price ? `${brl(row.quote.final_price)} × ${row.qty}` : "A confirmar"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-300">Subtotal de produtos</dt><dd className="numeric">{brl(audit?.product_subtotal ?? (row.quote?.final_price ? (Number(row.quote.final_price) * row.qty).toFixed(2) : null))}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-300">Frete</dt><dd className="numeric">{audit ? brl(audit.shipping_fee) : row.quote?.shipping_fee == null ? "Não confirmado" : brl(row.quote.shipping_fee)}</dd></div>

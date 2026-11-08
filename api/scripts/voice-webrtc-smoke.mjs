@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -9,6 +10,8 @@ const dir = mkdtempSync(join(tmpdir(), 'nexo-voice-webrtc-'));
 const dbPath = join(dir, 'business.sqlite');
 const waSends = [];
 const tgSends = [];
+let db, parseDelay=0;
+const turns=[];
 
 const fake = createServer(async (req, res) => {
   let raw = '';
@@ -28,6 +31,11 @@ const fake = createServer(async (req, res) => {
     waSends.push(body);
     res.end(JSON.stringify({ key: { id: `wa-${waSends.length}` } }));
     return;
+  }
+  if(req.url==='/conversation-turn'){
+    turns.push(body);if(parseDelay)await new Promise(r=>setTimeout(r,parseDelay));
+    const terms=body.terms||{supplier:'Fornecedor de teste',unit_cents:10000,shipping_cents:0,fees_cents:0,lead_days:7,available_qty:10,product_confirmed:true,destination_confirmed:true};
+    res.end(JSON.stringify({intent:'quotation',reply:'Termos recebidos.',terms,explicit_confirmation:body.phase==='quote_confirmation',terms_changed:false,purchase_acceptance:'unclear',accepted_counter_offer:body.message==='Aceito a contraproposta',offer_is_final:body.message==='Este é o preço final'}));return;
   }
   res.writeHead(404).end('{}');
 });
@@ -61,7 +69,8 @@ async function start() {
       WHATSAPP_INSTANCE_NAME: 'nexo',
       WHATSAPP_WEBHOOK_SECRET: 'wa-secret',
       VOICE_WEBHOOK_SECRET: 'voice-secret',
-      VAPI_API_KEY: 'vapi-pub-test',
+      VAPI_API_KEY: 'vapi-private-must-not-leak',
+      VAPI_PUBLIC_KEY:'vapi-pub-test',WHATSAPP_TEST_SUPPLIER_NUMBER:'5517991636725',AUTO_CONFIGURE_INTEGRATIONS:'false',
       VAPI_ASSISTANT_ID: 'vapi-asst-test',
     },
   });
@@ -92,195 +101,84 @@ async function json(path, body, headers = {}) {
   return { status: r.status, body: await r.json() };
 }
 
-try {
-  await start();
-
-  // 1. Create request and verify Telegram invite link contains /call/[id]
-  const created = await json('/requests', {
-    product: 'Notebook corporativo i7',
-    qty: 5,
-    destination: '01310-100',
-    specs: { ram: '16GB' },
-  });
-  assert.equal(created.status, 201);
-  const reqId = created.body.id;
-  assert.equal(tgSends.length, 1);
-  assert.match(tgSends[0].text, /Ligação de Voz Nexo/);
-  assert.match(tgSends[0].text, new RegExp(`http://localhost:3000/call/${reqId}`));
-
-  // Register WhatsApp contact
-  const regWa = await json(
-    `/requests/${reqId}/whatsapp`,
-    { supplier_id: 'fornecedor-voz', name: 'Tech Distribuidora', number: '5511977776666' },
-    { authorization: 'Bearer internal-test' }
-  );
-  assert.equal(regWa.status, 201);
-
-  // 2. Check GET /call-session/:id
-  const session = await json(`/call-session/${reqId}`);
-  assert.equal(session.status, 200);
-  assert.equal(session.body.product, 'Notebook corporativo i7');
-  assert.equal(session.body.qty, 5);
-  assert.equal(session.body.destination, '01310-100');
-  assert.equal(session.body.vapi_public_key, 'vapi-pub-test');
-  assert.equal(session.body.assistant_id, 'vapi-asst-test');
-
-  // 3. Call failure / mic denied via POST /call-session/:id/end -> triggers dual fallback (Telegram + WhatsApp)
-  const tgBeforeFail = tgSends.length;
-  const waBeforeFail = waSends.length;
-  const failEnd = await json(`/call-session/${reqId}/end`, {
-    call_id: 'webcall-fail-1',
-    status: 'failed',
-    quote_completed: false,
-  });
-  assert.equal(failEnd.status, 200);
-  assert.equal(tgSends.length, tgBeforeFail + 1);
-  assert.equal(waSends.length, waBeforeFail + 1);
-  assert.match(tgSends.at(-1).text, /tentativa de ligação de voz/i);
-  assert.match(waSends.at(-1).text, /por ligação de voz, mas a chamada não foi concluída/i);
-  assert.match(failEnd.body.request.notice, /Fallback efetuado/);
-
-  // Idempotency: duplicate call-end with same call_id does not resend
-  await json(`/call-session/${reqId}/end`, {
-    call_id: 'webcall-fail-1',
-    status: 'failed',
-    quote_completed: false,
-  });
-  assert.equal(tgSends.length, tgBeforeFail + 1);
-  assert.equal(waSends.length, waBeforeFail + 1);
-
-  // 4. Partial voice quote (missing shipping_fee / lead_days) -> keeps status='comparação', state='coletando' and sends partial fallback
-  const partialRes = await json(
-    '/webhook/voice',
-    {
-      message: {
-        type: 'end-of-call-report',
-        endedReason: 'customer-ended-call',
-        call: {
-          id: 'webcall-partial-1',
-          metadata: {
-            request_id: reqId,
-            supplier_id: 'fornecedor-voz',
-            supplier_name: 'Tech Distribuidora',
-          },
-          artifact: {
-            messages: [
-              { role: 'assistant', message: 'Qual o preço unitário?' },
-              { role: 'user', message: 'Consigo fazer R$ 3500,00 cada, temos 10 em estoque.' },
-              {
-                role: 'assistant',
-                toolCalls: [
-                  {
-                    id: 'tc-1',
-                    function: {
-                      name: 'submit_procurement_quote',
-                      arguments: JSON.stringify({
-                        initial_price: '3600.00',
-                        final_price: '3500.00',
-                        qty: 10,
-                        product_confirmed: true,
-                        destination_confirmed: true,
-                        supplier_confirmed: false,
-                      }),
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      },
-    },
-    { 'x-voice-webhook-secret': 'voice-secret' }
-  );
-  assert.equal(partialRes.status, 200);
-  const afterPartial = (await json(`/requests/${reqId}`)).body;
-  assert.equal(afterPartial.status, 'comparação');
-  assert.equal(afterPartial.quote_completion_state, 'coletando');
-  assert.equal(afterPartial.quotes.length, 1);
-  assert.equal(afterPartial.quotes[0].event_id, 'voice:webcall-partial-1');
-  assert.equal(afterPartial.quotes[0].unit_cents, 350000);
-  assert.equal(afterPartial.quotes[0].eligible, false);
-  assert.ok(afterPartial.supplier_draft.missing_fields.includes('shipping_cents'));
-
-  // 5. Complete voice quote with supplier_confirmed=true -> status='concluida', quote_completion_state='concluida', completed_quote_id set
-  const completeRes = await json(`/call-session/${reqId}/end`, {
-    call_id: 'webcall-complete-1',
-    status: 'completed',
-    quote_completed: true,
-    supplier_id: 'fornecedor-voz',
-    supplier_name: 'Tech Distribuidora',
-    transcript: [
-      { sender_type: 'AI', content: 'Olá! Podemos confirmar frete, taxas e prazo?' },
-      { sender_type: 'SUPPLIER', content: 'Preço final R$ 3400,00, frete R$ 50,00, sem taxas, entrega em 3 dias, 10 em estoque. Confirmo a proposta!' },
-    ],
-    quote: {
-      initial_price: '3600.00',
-      final_price: '3400.00',
-      shipping_fee: '50.00',
-      fees: '0.00',
-      lead_days: 3,
-      qty: 10,
-      delivery_time: '3 dias úteis',
-      conditions: 'PIX ou boleto 30 dias',
-      product_confirmed: true,
-      destination_confirmed: true,
-      supplier_confirmed: true,
-    },
-  });
-  assert.equal(completeRes.status, 200);
-  assert.equal(completeRes.body.quote_completed, true);
-
-  const afterComplete = (await json(`/requests/${reqId}`)).body;
-  assert.equal(afterComplete.status, 'concluida');
-  assert.equal(afterComplete.quote_completion_state, 'concluida');
-  assert.ok(afterComplete.completed_quote_id);
-  const completedQuote = afterComplete.quotes.find((q) => q.id === afterComplete.completed_quote_id);
-  assert.ok(completedQuote);
-  assert.equal(completedQuote.event_id, 'voice:webcall-complete-1');
-  assert.equal(completedQuote.unit_cents, 340000);
-  assert.equal(completedQuote.shipping_cents, 5000);
-  assert.equal(completedQuote.fees_cents, 0);
-  assert.equal(completedQuote.lead_days, 3);
-  assert.equal(completedQuote.available_qty, 10);
-  assert.equal(completedQuote.eligible, true);
-  assert.equal(completedQuote.tco_cents, 340000 * 5 + 5000);
-
-  // 6. Verify HistoryService detail includes voice channel in quotes and conversations
-  const hist = (await json(`/history/${reqId}`)).body;
-  assert.ok(hist.quotes.some((q) => q.channel === 'voice' && q.eligible === true));
-  assert.ok(hist.conversations.some((c) => c.channel === 'voice' && c.messages.length >= 2));
-
-  // 7. Verify human decision / purchase simulation works on the completed voice quote
-  const decided = await json(
-    `/requests/${reqId}/decision`,
-    {
-      quote_id: afterComplete.completed_quote_id,
-      version: afterComplete.version,
-      confirmed: true,
-    },
-    { 'idempotency-key': 'voice-sim-key-1' }
-  );
-  assert.equal(decided.status, 201);
-  assert.equal(decided.body.status, 'decidida');
-  assert.equal(decided.body.purchase_simulation.status, 'awaiting_supplier');
-
-  // 8. Verify POST /requests/:id/call-supplier in WebRTC mode sends invite link
-  const created2 = await json('/requests', {
-    product: 'Monitor 27 4K',
-    qty: 3,
-    destination: '04538-132',
-    specs: { painel: 'IPS' },
-  });
-  const req2Id = created2.body.id;
-  const callWeb = await json(`/requests/${req2Id}/call-supplier`, {});
-  assert.equal(callWeb.status, 201);
-  assert.equal(callWeb.body.mode, 'webrtc');
-  assert.equal(callWeb.body.call_url, `http://localhost:3000/call/${req2Id}`);
-
-  console.log('PASS Voice WebRTC Full-Duplex smoke: invite link, call-session, dual fallback, partial draft, completed voice quote, purchase simulation, Kanban & History');
-} finally {
-  await stop().catch(() => {});
-  await new Promise((resolve) => fake.close(resolve));
-  rmSync(dir, { recursive: true, force: true });
+async function until(predicate){for(let i=0;i<150;i++){if(predicate())return;await new Promise(r=>setTimeout(r,50));}throw new Error('Worker timeout');}
+async function create(product='Mouse teste'){
+  const result=await json('/requests',{product,qty:2,destination:'01001-000',specs:{}});
+  assert.equal(result.status,201);const id=result.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(id)?.status==='voice_waiting');
+  return id;
 }
+function flow(id){return db.prepare('SELECT * FROM whatsapp_contact_flow WHERE request_id=?').get(id);}
+function expire(id){db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=? WHERE request_id=?').run(new Date(Date.now()-1).toISOString(),id);}
+async function reply(id,key,text,number='551791636725'){
+  const parent=db.prepare("SELECT message_id FROM whatsapp_delivery WHERE request_id=? AND status='sent' ORDER BY rowid LIMIT 1").get(id).message_id;
+  return json('/webhook/whatsapp',{event:'messages.upsert',instance:'nexo',data:{key:{id:key,remoteJid:'987654321@lid',remoteJidAlt:`${number}@s.whatsapp.net`,fromMe:false},message:{extendedTextMessage:{text,contextInfo:{stanzaId:parent}}}}},{'x-whatsapp-webhook-secret':'wa-secret'});
+}
+try {
+  await start();db=new Database(dbPath);
+  const id=await create();
+  assert.match(waSends.at(-1).text,new RegExp(`/call/${id}`));assert.equal(tgSends.length,0);
+  const sentAt=Date.parse(db.prepare('SELECT created_at FROM whatsapp_delivery WHERE request_id=?').get(id).created_at);
+  assert.ok(Date.parse(flow(id).next_check_at)-sentAt>=119000,'voice waits 120 seconds by default');
+  const session=(await json(`/call-session/${id}`)).body;
+  assert.equal(session.vapi_public_key,'vapi-pub-test');assert.ok(session.voice_webhook_token);assert.ok(!JSON.stringify(session).includes('vapi-private'));
+  const forbidden=await json('/webhook/voice',{request_id:id,supplier_id:'teste-whatsapp',call_id:'unauth',status:'failed'});
+  assert.equal(forbidden.status,401);
+  // Expiring persisted deadlines models elapsed time, without sleeping for three minutes.
+  expire(id);await stop();await start();
+  await until(()=>flow(id).status==='wa_waiting');assert.equal(waSends.length,2);assert.equal(tgSends.length,0);
+  const waAt=Date.parse(db.prepare("SELECT created_at FROM whatsapp_delivery WHERE request_id=? ORDER BY rowid DESC LIMIT 1").get(id).created_at);
+  assert.ok(Date.parse(flow(id).next_check_at)-waAt>=59000,'WhatsApp waits 60 seconds');
+  const sendsBefore=waSends.length;
+  expire(id);await stop();await start();await until(()=>tgSends.length===1);
+  assert.equal(waSends.length,sendsBefore,'restart does not resend invitations or WhatsApp text');
+  assert.equal((await json(`/call-session/${id}/start`,{call_id:'late-call'})).body.ok,false,'late call cannot interrupt text contact');
+  // A WhatsApp reply wins before interpretation finishes, also with Brazil ninth digit / LID aliases.
+  const telegramReply=(update_id,text)=>json('/webhook/telegram',{update_id,message:{message_id:5000+update_id,chat:{id:998877},from:{id:998877},text,reply_to_message:{message_id:1}}},{'x-telegram-bot-api-secret-token':'tg-secret'});
+  await telegramReply(1,'Preço 100, frete zero, taxas zero, 7 dias, estoque 10.');
+  assert.match(tgSends.at(-1).text,/80.00/);
+  await telegramReply(2,'Aceito a contraproposta');assert.match(tgSends.at(-1).text,/Confirma essas condições/);
+  await telegramReply(3,'Confirmo');assert.equal((await json(`/requests/${id}`)).body.quote_completion_state,'concluida');
+  const telegramCount=tgSends.length;
+  const responding=await create();parseDelay=900;
+  const pending=reply(responding,'response-1','Preço 100, frete e taxas zero, 7 dias, estoque 10. Confirmo produto e CEP').catch(()=>null);
+  await until(()=>flow(responding).status==='done');
+  assert.equal(flow(responding).next_check_at,null);assert.equal(db.prepare('SELECT channel FROM supplier_response_winner WHERE request_id=?').get(responding).channel,'whatsapp');
+  await stop();await pending.catch(()=>{});parseDelay=0;db.prepare('UPDATE whatsapp_updates SET retry_after=NULL WHERE request_id=?').run(responding);await start();
+  await until(()=>db.prepare('SELECT status FROM whatsapp_updates WHERE request_id=?').get(responding)?.status==='processed');
+  assert.equal(tgSends.length,telegramCount,'reply cancels Telegram even after parser interruption/restart');
+  assert.match(waSends.at(-1).text,/80.00/,'text negotiates 20% below initial supplier price');
+  const beforeDuplicate=waSends.length;await reply(responding,'response-1','Duplicado');assert.equal(waSends.length,beforeDuplicate);
+  await reply(responding,'response-2','Aceito a contraproposta');assert.match(waSends.at(-1).text,/Confirma essas condições/);
+  let request=(await json(`/requests/${responding}`)).body;assert.notEqual(request.quote_completion_state,'concluida');
+  await reply(responding,'response-3','Confirmo');request=(await json(`/requests/${responding}`)).body;
+  assert.equal(request.quote_completion_state,'concluida');assert.equal(request.quotes.find(q=>q.id===request.completed_quote_id).unit_cents,8000);
+  assert.ok((await json(`/requests/${responding}/messages`)).body.some(m=>m.channel==='whatsapp'&&m.sender_type==='SUPPLIER'));
+  // Connected voice has no timeout; its transcript goes to WhatsApp when the call ends.
+  const active=await create();
+  assert.equal((await json(`/call-session/${active}/start`,{call_id:'active-call'})).body.ok,true);
+  assert.equal(flow(active).next_check_at,null);await stop();await start();assert.equal(flow(active).status,'voice_active');
+  const transcript=[{sender_type:'AI',content:'Qual o preço?'},{sender_type:'SUPPLIER',content:'Ainda estou consultando.'}];
+  const end=await json(`/call-session/${active}/end`,{call_id:'active-call',status:'failed',allow_transcript_extraction:false,transcript});
+  assert.equal(end.status,200);assert.equal(flow(active).status,'wa_waiting');assert.equal(tgSends.length,telegramCount);
+  assert.ok(waSends.some(m=>m.text.includes('Transcrição da ligação')&&m.text.includes('Ainda estou consultando')));
+  const beforeEndDuplicate=waSends.length;await json(`/call-session/${active}/end`,{call_id:'active-call',status:'failed',allow_transcript_extraction:false,transcript});assert.equal(waSends.length,beforeEndDuplicate);
+  // A scoped Vapi callback cannot target a different request.
+  const quoteId=await create('Notebook teste');const quoteSession=(await json(`/call-session/${quoteId}`)).body;
+  const callback={message:{type:'end-of-call-report',endedReason:'customer-ended-call',call:{id:'complete-voice',metadata:{request_id:quoteId,supplier_id:'teste-whatsapp'},artifact:{messages:[]}}}};
+  const wrong=await json('/webhook/voice',callback,{'x-call-session-token':session.voice_webhook_token});assert.equal(wrong.status,401);
+  // An arbitrary client completion flag is insufficient; all confirmed quote fields are required.
+  const fakeComplete=await json(`/call-session/${quoteId}/end`,{call_id:'complete-voice',status:'completed',quote_completed:true,allow_transcript_extraction:false});
+  assert.equal(fakeComplete.body.quote_completed,false);
+  const complete=await json(`/call-session/${quoteId}/end`,{call_id:'complete-voice',status:'completed',transcript,quote:{initial_price:'100',final_price:'80',shipping_fee:'0',fees:'0',lead_days:3,qty:10,product_confirmed:true,destination_confirmed:true,supplier_confirmed:true}});
+  assert.equal(complete.body.quote_completed,true);
+  const done=(await json(`/requests/${quoteId}`)).body;assert.equal(done.status,'concluida');assert.ok(done.completed_quote_id);
+  const beforeTranscript=waSends.length;
+  const newTranscript=[{sender_type:'SUPPLIER',content:'Confirmação final por voz, muito obrigado.'}];
+  await json(`/call-session/${quoteId}/end`,{call_id:'complete-voice',status:'completed',transcript:newTranscript,allow_transcript_extraction:false});
+  assert.ok(waSends.slice(beforeTranscript).some(m=>m.text.includes('Confirmação final por voz')),'terminal report sends transcript even when tool already completed the quote');
+  const hist=(await json(`/history/${quoteId}`)).body;
+  assert.ok(hist.quotes.some(q=>q.channel==='voice'&&q.eligible));assert.ok(hist.conversations.some(c=>c.channel==='voice'));
+  console.log('PASS WebRTC → 120s → WhatsApp → 60s → Telegram; connected voice, transcript, restart/deduplication, delayed reply cancellation, LID/ninth digit, text counteroffer/final confirmation, scoped callback auth and voice quote history.');
+} catch(error){console.error(error);process.exitCode=1;}
+finally {if(child?.exitCode===null)await stop().catch(()=>{});db?.close();await new Promise(r=>fake.close(r));rmSync(dir,{recursive:true,force:true});}

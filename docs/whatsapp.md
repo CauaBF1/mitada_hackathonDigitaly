@@ -8,7 +8,15 @@ O Compose constrói `localhost/nexo-evolution:2.3.7-pairing-1`, baseada em `dock
 
 1. Copie `.env.example` para `.env` **somente se ainda não existir**. Em um `.env` existente, acrescente as novas variáveis. Preencha `WHATSAPP_API_KEY`, `WHATSAPP_WEBHOOK_SECRET`, `VOICE_WEBHOOK_SECRET`, `INTERNAL_API_TOKEN` com valores distintos, além da chave Gemini. Configure `WHATSAPP_SUPPLIER_NUMBER` (ou `WHATSAPP_TEST_SUPPLIER_NUMBER`) apenas com um contato autorizado. Para o runtime local, `WHATSAPP_API_URL=http://127.0.0.1:8080`; dentro do Compose, a API usa `http://evolution:8080`. `WHATSAPP_INSTANCE_NAME=nexo`.
 2. Execute `podman compose up -d --build` (ou `docker compose up -d --build`). A API não depende da disponibilidade da Evolution para iniciar ou atender Telegram.
-3. Crie a instância e configure o webhook **por instância**, com `byEvents: false`. O destino recomendado é `http://172.17.0.1:8082/webhook/whatsapp` quando a Evolution está em Docker e a API Nest roda no host. Configure `WHATSAPP_GATEWAY_HOST=172.17.0.1` e inicie `scripts/dev_nexo.py`; o relay aceita só POST neste caminho, exige `WHATSAPP_WEBHOOK_SECRET`, limita corpo a 64 KiB e encaminha a `127.0.0.1:4000`. A API Nest não precisa ser exposta na rede do Docker.
+3. No Compose, a API cria a instância se necessário e configura o webhook automaticamente para `http://api:4000/webhook/whatsapp`, com o segredo de autenticação. Não execute o relay de desenvolvimento do host quando estiver usando o Compose. Para parear sem instalar Python no computador:
+
+```bash
+docker compose --profile pairing up -d --build whatsapp-pairing
+```
+
+Abra `http://127.0.0.1:8766` e leia o QR com o WhatsApp da Nexo, em **Aparelhos conectados → Conectar aparelho**. O visualizador atualiza o código e não revela a chave da API. Depois de conectar, pode encerrar apenas o visualizador: `docker compose --profile pairing stop whatsapp-pairing`.
+
+Os comandos abaixo são alternativas manuais para administrar a Evolution:
 
 ```bash
 curl -fsS http://localhost:8080/instance/create \
@@ -35,7 +43,7 @@ Escaneie o QR retornado (ou use o visualizador local) com o WhatsApp do número 
 
 ## Teste por curl
 
-Para usar o contato padrão em novas solicitações, configure explicitamente `WHATSAPP_SUPPLIER_NUMBER`. O número é cadastrado como `Fornecedor configurado` com ID estável; nenhuma relação é inferida pelo nome. `WHATSAPP_TEST_SUPPLIER_NUMBER` continua disponível para testes locais. Ao aceitar a pesquisa, a API envia a abertura por WhatsApp. Uma resposta reconhecida cancela o fallback; sem resposta, a API usa o chat Telegram somente se houver exatamente um chat autorizado em `TELEGRAM_ALLOWED_CHAT_IDS`, após `WHATSAPP_TELEGRAM_FALLBACK_SECONDS` (60 segundos por padrão). A deadline fica no SQLite e sobrevive a reinícios. Envio incerto não é repetido; ausência de uma configuração Evolution é registrada como atenção e não é tratada como envio. A API não inicia chamadas de voz nesse fluxo.
+Para usar o contato padrão em novas solicitações, configure explicitamente `WHATSAPP_SUPPLIER_NUMBER`. O número é cadastrado como `Fornecedor configurado` com ID estável; nenhuma relação é inferida pelo nome. `WHATSAPP_TEST_SUPPLIER_NUMBER` continua disponível para testes locais. Com `VAPI_PUBLIC_KEY` e `VAPI_ASSISTANT_ID` configurados, a API envia primeiro um convite de chamada WebRTC pelo WhatsApp, aguarda `VOICE_ANSWER_TIMEOUT_SECONDS` (120 segundos) e só então inicia a cotação por texto. Uma chamada atendida suspende o fallback e sua transcrição segue para o WhatsApp ao encerrar. Sem configuração de voz, começa diretamente por texto. Uma resposta reconhecida cancela o fallback; sem resposta, a API usa o chat Telegram somente se houver exatamente um chat autorizado em `TELEGRAM_ALLOWED_CHAT_IDS`, após `WHATSAPP_TELEGRAM_FALLBACK_SECONDS` (60 segundos por padrão). A deadline fica no SQLite e sobrevive a reinícios. Envio incerto não é repetido; ausência de uma configuração Evolution é registrada como atenção e não é tratada como envio. A sessão WebRTC é aberta pelo fornecedor no link `/call/[id]`; não há discagem telefônica automática nesse modo.
 
 Use apenas um número sob seu controle para testar envio; o teste HTTP automatizado usa stubs e não envia mensagens reais. Copie o `id` retornado pela criação para `REQUEST_ID`. Os valores de voz abaixo são os segredos definidos no `.env`.
 

@@ -126,8 +126,8 @@ try {
   assert.match(sends.at(-1).text,/R\$ 40.00/,'complete terms start a counteroffer, not premature completion');
   parseMode='denied'; await wa(inbound('denied')); assert.equal((await json(`/requests/${id}`)).body.quotes[0].product_confirmed,false);
   // Separate suppliers must never share quote state or message history.
-  await json(`/requests/${id}/whatsapp`,{supplier_id:'supplier-b',name:'B',number:'5511777777777'},{authorization:'Bearer internal-test'});
-  await voice(id,'call-b','busy',{},'supplier-b'); parseMode='rest'; await wa(inbound('b-1','5511777777777'));
+  const supplierB=await create('5511777777777','supplier-b');
+  await voice(supplierB,'call-b','busy',{},'supplier-b'); parseMode='rest'; await wa(inbound('b-1','5511777777777'));
   assert.match(sends.at(-1).text,/preço unitário/); assert.doesNotMatch(interpretations.at(-1).text,/SUPPLIER: Cotação/);
   // Ambiguous open requests require a quoted outbound message.
   const second = await create(); await voice(second,'second-call');
