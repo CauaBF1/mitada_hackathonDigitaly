@@ -196,9 +196,21 @@ export default function SupplierWebCallPage() {
       return;
     }
 
+    let latestSession = session;
+    try {
+      const freshRes = await fetch(`/api/call-session/${id}`, { cache: "no-store" });
+      if (freshRes.ok) {
+        const freshData = (await freshRes.json()) as CallSessionData;
+        if (freshData && freshData.id) {
+          latestSession = freshData;
+          setSession(freshData);
+        }
+      }
+    } catch {}
+
     const rawPubKey =
       process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ||
-      session.vapi_public_key ||
+      latestSession.vapi_public_key ||
       "";
     const publicKey =
       rawPubKey === "453711c4-6d8e-4e58-8dd0-b651fe514e20"
@@ -206,7 +218,7 @@ export default function SupplierWebCallPage() {
         : rawPubKey;
     const assistantId =
       process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID ||
-      session.assistant_id ||
+      latestSession.assistant_id ||
       "";
 
     if (!publicKey || !assistantId) {
@@ -317,10 +329,13 @@ export default function SupplierWebCallPage() {
         });
       });
 
-      const product = session.product;
-      const qty = session.qty;
-      const destination = session.destination;
-      const target_price = session.target_price || "0.00";
+      const product = latestSession.product;
+      const qty = latestSession.qty;
+      const destination = latestSession.destination;
+      const target_price =
+        latestSession.target_price && Number(latestSession.target_price) > 0
+          ? latestSession.target_price
+          : null;
 
       const webhookOrigin =
         typeof window !== "undefined" &&
@@ -340,10 +355,16 @@ export default function SupplierWebCallPage() {
         variableValues: {
           purchase_context: JSON.stringify({
             request_id: id,
+            supplier_id: supplierId || "fornecedor-voz",
+            supplier_name: supplierName || "Fornecedor Voz",
             item: product,
             requested_qty: qty,
             destination,
             target_price,
+            fallback_discount_percent: 20,
+            target_rule: target_price
+              ? `Meta de preço unitário: R$ ${target_price} (80% da referência de mercado)`
+              : "Sem meta prévia; ofertar 80% do valor inicial proposto pelo fornecedor (20% de desconto)",
             currency: "BRL",
           }),
         },

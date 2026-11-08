@@ -520,9 +520,9 @@ function verifyJwt(token: string): Record<string, any> {
   }
   getCallSession(id: string) {
     const req = this.get(id);
-    const marketQuotes = (req.quotes || []).filter((q: any) => typeof q.source_url === 'string' && q.source_url.startsWith('https://') && typeof q.unit_price === 'number');
+    const marketQuotes = (req.quotes || []).filter((q: any) => typeof q.source_url === 'string' && q.source_url.startsWith('https://') && typeof q.unit_price === 'number' && q.unit_price > 0);
     const lowestMarket = marketQuotes.length ? Math.min(...marketQuotes.map((q: any) => q.unit_price)) : null;
-    const targetPrice = lowestMarket ? (lowestMarket * 0.95).toFixed(2) : '0.00';
+    const targetPrice = lowestMarket ? (lowestMarket * 0.8).toFixed(2) : null;
     const waContact = db.prepare('SELECT supplier_id, number, name FROM whatsapp_contacts WHERE request_id=? ORDER BY rowid DESC LIMIT 1').get(id) as any;
     return {
       id: req.id,
@@ -534,6 +534,7 @@ function verifyJwt(token: string): Record<string, any> {
       status: req.status,
       quote_completion_state: req.quote_completion_state,
       target_price: targetPrice,
+      market_lowest_price: lowestMarket ? lowestMarket.toFixed(2) : null,
       supplier_id: waContact?.supplier_id || 'fornecedor-voz',
       supplier_name: waContact?.name || 'Fornecedor Voz',
       vapi_public_key:

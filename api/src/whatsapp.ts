@@ -184,11 +184,19 @@ export class WhatsAppService {
   async voice(body: any) {
     const message = body?.message;
     if (message && !['tool-calls', 'end-of-call-report'].includes(message.type)) return { ok: true, ignored: 'unsupported-event' };
-    const metadata = message?.call?.metadata || body?.metadata || body;
-    const id = metadata?.request_id ?? body?.request_id;
-    const supplierId = metadata?.supplier_id ?? body?.supplier_id ?? (message ? 'fornecedor-voz' : undefined);
-    const supplierName = String(metadata?.supplier_name || body?.supplier_name || 'Fornecedor Voz');
-    const callId = message?.call?.id || body?.call_id;
+    const callObj = message?.call || body?.call || {};
+    const overrides = callObj?.assistantOverrides || message?.assistant?.assistantOverrides || body?.assistantOverrides || {};
+    let parsedContext: any = {};
+    try {
+      const rawCtx = overrides?.variableValues?.purchase_context || callObj?.variableValues?.purchase_context;
+      if (typeof rawCtx === 'string' && rawCtx.trim()) parsedContext = JSON.parse(rawCtx);
+      else if (rawCtx && typeof rawCtx === 'object') parsedContext = rawCtx;
+    } catch {}
+    const metadata = callObj?.metadata || overrides?.metadata || message?.metadata || body?.metadata || body;
+    const id = metadata?.request_id ?? parsedContext?.request_id ?? body?.request_id;
+    const supplierId = metadata?.supplier_id ?? parsedContext?.supplier_id ?? body?.supplier_id ?? (message ? 'fornecedor-voz' : undefined);
+    const supplierName = String(metadata?.supplier_name || parsedContext?.supplier_name || body?.supplier_name || 'Fornecedor Voz');
+    const callId = callObj?.id || body?.call_id || (message?.type === 'tool-calls' ? `vapi-tool-${id || 'call'}` : undefined);
     if (typeof id !== 'string' || !id || typeof supplierId !== 'string' || !supplierId || typeof callId !== 'string' || !callId || callId.length > 200)
       throw new BadRequestException('Evento de voz requer request_id, supplier_id e call_id.');
     const req = this.getRequest(id);
