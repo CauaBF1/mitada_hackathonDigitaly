@@ -74,15 +74,15 @@ test("Jev purchase recommendation is explicit, shows cent math, and records the 
   await page.route(`**/api/request/${id}/purchase-recommendation`, async route => {
     recommendationCalls++;
     recommendationPayload = {
-      review_id: "review-jev-1", version: 9, offer_hash: "hash-1", recommendation: "supplier", reason: "Ajustado, o fornecedor fica abaixo da referência de mercado confiável.", explanation: "Comparação das ofertas equivalentes.",
-      supplier_preference_factor: 0.8, actual_supplier_tco_cents: 12300, adjusted_supplier_tco_cents: 9840, adjusted_supplier_tco: "98.40",
-      best_market_offer_id: "market-cheap", best_market_tco_cents: 10500, most_reliable_market_offer_id: "market-reliable", most_reliable_market_tco_cents: 11000,
-      comparator_market_offer_id: "market-reliable", comparator_market_tco_cents: 11000, supplier_offer_id: "supplier-1", selected_offer_id: "supplier-1", threshold_market_tco_cents: 11000,
-      comparison_basis: "complete_tco", comparison_supplier_cents: 12300, comparator_market_cents: 11000, pending_checks: [],
+      review_id: "review-jev-1", version: 9, offer_hash: "hash-1", recommendation: "supplier", verdict: "Fornecedor dentro do limite de custo definido.", reason: "confirmed_supplier_within_max_premium", explanation: "O total do fornecedor está R$ 5,00 acima da oferta confiável.", policy_version: "supplier-premium-v1", supplier_max_premium_percent: 5, supplier_premium_allowed: true, premium_limit_cents: 27300, savings_or_premium_cents: 500, savings_or_premium_percent: 1.92, comparison_provisional: false,
+      actual_supplier_tco_cents: 26500, actual_supplier_comparison_cents: 26500,
+      best_market_offer_id: "market-cheap", best_market_tco_cents: 24500, most_reliable_market_offer_id: "market-reliable", most_reliable_market_tco_cents: 26000,
+      comparator_market_offer_id: "market-reliable", comparator_market_tco_cents: 26000, supplier_offer_id: "supplier-1", selected_offer_id: "supplier-1", threshold_market_tco_cents: 27300,
+      comparison_basis: "complete_tco", comparison_supplier_cents: 26500, comparator_market_cents: 26000, pending_checks: [],
       candidates: [
-        { offer_id: "supplier-1", supplier: "Fornecedor cotado", channel: "telegram", source_url: null, tco_cents: 12300, comparison_amount_cents: 12300, eligible: true, equivalence_probability: 0.98, evidence_probability: 0.98, comparable: true, reliable: true, adjusted_tco_cents: 9840 },
-        { offer_id: "market-cheap", supplier: "Loja com menor preço", channel: "market", source_url: "https://shop.example/cheap", tco_cents: 10500, comparison_amount_cents: 10500, eligible: true, equivalence_probability: 0.95, evidence_probability: 0.55, comparable: true, reliable: false, adjusted_tco_cents: null },
-        { offer_id: "market-reliable", supplier: "Loja mais confiável", channel: "market", source_url: "https://shop.example/reliable", tco_cents: 11000, comparison_amount_cents: 11000, eligible: true, equivalence_probability: 0.96, evidence_probability: 0.92, comparable: true, reliable: true, adjusted_tco_cents: null },
+        { offer_id: "supplier-1", supplier: "Fornecedor cotado", channel: "telegram", source_url: null, unit_cents: 25000, product_subtotal_cents: 25000, shipping_cents: 1500, fees_cents: 0, lead_days: 2, available_qty: 10, tco_cents: 26500, comparison_amount_cents: 26500, eligible: true, equivalence_probability: 0.56, evidence_probability: 0.33, comparable: true, reliable: true, is_completed_supplier: true, pending_checks: [] },
+        { offer_id: "market-cheap", supplier: "Loja com menor preço", channel: "market", source_url: "https://shop.example/cheap", unit_cents: 24500, product_subtotal_cents: 24500, shipping_cents: 0, fees_cents: 0, lead_days: 3, available_qty: 2, tco_cents: 24500, comparison_amount_cents: 24500, eligible: true, equivalence_probability: 0.95, evidence_probability: 0.55, comparable: true, reliable: false, adjusted_tco_cents: null },
+        { offer_id: "market-reliable", supplier: "Loja mais confiável", channel: "market", source_url: "https://shop.example/reliable", unit_cents: 26000, product_subtotal_cents: 26000, shipping_cents: 0, fees_cents: 0, lead_days: 3, available_qty: 4, tco_cents: 26000, comparison_amount_cents: 26000, eligible: true, equivalence_probability: 0.96, evidence_probability: 0.92, comparable: true, reliable: true, adjusted_tco_cents: null },
       ],
     };
     await route.fulfill({ json: recommendationPayload });
@@ -96,18 +96,28 @@ test("Jev purchase recommendation is explicit, shows cent math, and records the 
   await page.locator("#kanban article").filter({ hasText: "Teclado de teste" }).locator('button[aria-pressed]').click();
   const drawer = page.getByRole("dialog", { name: "Teclado de teste" });
   await page.setViewportSize({ width: 1440, height: 700 });
-  await expect(drawer.getByRole("button", { name: "Automatizar recomendação com Jev" })).toBeVisible();
-  const recommendationButtonBox = await drawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).boundingBox();
+  await expect(drawer.getByRole("button", { name: "Ver recomendação de compra" })).toBeVisible();
+  const recommendationButtonBox = await drawer.getByRole("button", { name: "Ver recomendação de compra" }).boundingBox();
   expect(recommendationButtonBox).not.toBeNull();
   expect(recommendationButtonBox!.y + recommendationButtonBox!.height).toBeLessThanOrEqual(700);
   expect(recommendationCalls).toBe(0);
-  await drawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).click();
-  await expect(drawer.getByText("Recomendação: fornecedor · Fornecedor cotado")).toBeVisible();
-  await expect(drawer.getByText("TCO do fornecedor (R$ 123,00) × 0,8 = R$ 98,40 ajustados, comparados ao mercado confiável (R$ 110,00)." )).toBeVisible();
-  await expect(drawer.getByText(/O fator 0,8 é apenas um ajuste para recomendar\. O preço real da cotação permanece R\$ 123,00/)).toBeVisible();
-  await expect(drawer).toContainText("Loja com menor preço");
+  await drawer.getByRole("button", { name: "Ver recomendação de compra" }).click();
+  await expect(drawer.getByText("Comprar com Fornecedor cotado")).toBeVisible();
+  await expect(drawer).toContainText("Fornecedor R$ 5,00 (1,9%) acima do comparador confiável.");
+  await expect(drawer).toContainText("Fornecedor dentro do limite de custo definido.");
+  await expect(drawer).toContainText("Limite da política: até 5% acima para fornecedor confirmado com prazo igual ou menor.");
+  await expect(drawer.getByText("R$ 265,00", { exact: true })).toBeVisible();
+  await expect(drawer).toContainText("produtos R$ 250,00 · frete R$ 15,00 · taxas R$ 0,00 · prazo 4 dias · estoque 10");
   await expect(drawer).toContainText("Loja mais confiável");
-  await drawer.getByRole("button", { name: "Sim, aceitar recomendação" }).click();
+  await expect(drawer.locator("details[open]")).toHaveCount(0);
+  const offerRows = await drawer.getByLabel("Ofertas comparadas").boundingBox();
+  expect(offerRows).not.toBeNull();
+  expect(offerRows!.y + offerRows!.height).toBeLessThanOrEqual(700);
+  await drawer.screenshot({ path: "/tmp/jev-recomendacao-simples.png" });
+  await drawer.getByText("Detalhes da análise").click();
+  await expect(drawer).toContainText("evidência 33%");
+  await drawer.getByText("Detalhes da análise").click();
+  await drawer.getByRole("button", { name: "Aceitar recomendação" }).click();
   expect(approvalBody).toEqual({ review_id: "review-jev-1", version: 9, approved: true });
   await expect(drawer.getByRole("status")).toContainText("Recomendação aceita e registrada.");
   expect(recommendationCalls).toBe(1);
@@ -115,7 +125,7 @@ test("Jev purchase recommendation is explicit, shows cent math, and records the 
   await page.locator("#kanban article").filter({ hasText: "Teclado de teste" }).locator('button[aria-pressed]').click();
   const restoredDrawer = page.getByRole("dialog", { name: "Teclado de teste" });
   await expect(restoredDrawer.getByRole("status")).toContainText("Recomendação aceita e registrada.");
-  await expect(restoredDrawer).toContainText("R$ 123,00");
+  await expect(restoredDrawer).toContainText("R$ 265,00");
   expect(recommendationCalls).toBe(1);
 });
 
@@ -134,7 +144,7 @@ test("Jev blocks incomplete comparisons and surfaces provider errors", async ({ 
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 2, runs: [blockedRow, errorRow], metrics: { hard_savings: null, cost_avoidance: null, final_spend: null, completed_count: 2, active_count: 0, verified_suppliers_count: 0, pending_tco_count: 2 } } }));
   await page.route(`**/api/request/${blockedId}/purchase-recommendation`, route => route.fulfill({ json: {
     review_id: "blocked-review", version: 3, offer_hash: "hash", recommendation: "review", reason: "no_reliable_comparable_market_offer", explanation: "Nenhum comparador confiável foi encontrado.",
-    supplier_preference_factor: 0.8, actual_supplier_tco_cents: null, adjusted_supplier_tco_cents: null, best_market_offer_id: null, best_market_tco_cents: null,
+    actual_supplier_tco_cents: null, best_market_offer_id: null, best_market_tco_cents: null,
     most_reliable_market_offer_id: null, most_reliable_market_tco_cents: null, comparator_market_offer_id: null, comparator_market_tco_cents: null, supplier_offer_id: null,
     selected_offer_id: null, threshold_market_tco_cents: null, comparison_basis: "product_subtotal", comparison_supplier_cents: null, comparator_market_cents: null,
     pending_checks: ["shipping", "fees", "availability", "lead_time"], candidates: [],
@@ -144,17 +154,48 @@ test("Jev blocks incomplete comparisons and surfaces provider errors", async ({ 
   const blockedCard = page.locator("#kanban article").filter({ hasText: "Comparação pendente" }).locator('button[aria-pressed]');
   await blockedCard.click();
   const blockedDrawer = page.getByRole("dialog", { name: "Comparação pendente" });
-  await blockedDrawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).click();
-  await expect(blockedDrawer).toContainText("Comparação dos preços dos produtos");
-  await expect(blockedDrawer).toContainText("frete, taxas, estoque, prazo de entrega");
+  await blockedDrawer.getByRole("button", { name: "Ver recomendação de compra" }).click();
+  await expect(blockedDrawer.getByText("Faltam dados para recomendar")).toBeVisible();
+  await expect(blockedDrawer).toContainText("frete, taxas adicionais, estoque disponível, prazo de entrega");
   await expect(blockedDrawer.getByRole("status")).toContainText("Análise bloqueada");
-  await expect(blockedDrawer.getByRole("button", { name: "Sim, aceitar recomendação" })).toHaveCount(0);
+  await expect(blockedDrawer.getByRole("button", { name: "Aceitar recomendação" })).toHaveCount(0);
   await blockedDrawer.getByRole("button", { name: "Fechar detalhes" }).click();
   await page.locator("#kanban article").filter({ hasText: "Falha de Jev" }).locator('button[aria-pressed]').click();
   const errorDrawer = page.getByRole("dialog", { name: "Falha de Jev" });
-  await errorDrawer.getByRole("button", { name: "Automatizar recomendação com Jev" }).click();
+  await errorDrawer.getByRole("button", { name: "Ver recomendação de compra" }).click();
   await expect(errorDrawer.getByRole("alert")).toContainText("Jev indisponível no momento");
-  await expect(errorDrawer.getByRole("button", { name: "Automatizar recomendação com Jev" })).toBeVisible();
+  await expect(errorDrawer.getByRole("button", { name: "Ver recomendação de compra" })).toBeVisible();
+});
+
+test("Jev records a user's rejection through the approval endpoint", async ({ page }) => {
+  const id = "56565656-5656-4565-8565-565656565656";
+  const row: any = {
+    id, version: 4, item: "Cabo de rede", qty: 1, delivery_location: "São Paulo", status: "DONE", stage: "concluida", mode: "live",
+    sources: [], reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0, selected_product_url: null,
+    quote: { id: "67676767-6767-4676-8676-676767676767", supplier_name: "Fornecedor cotado", product_name: "Cabo de rede", final_price: "20.00", shipping_fee: "5.00", final_tco: "25.00", delivery_time: "2 dias", conditions: "" },
+    purchase_simulation: null, audit: { final_tco: "25.00", additional_cost_total: "0.00" },
+  };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-08T00:00:00.000Z" } } }));
+  await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "0", cost_avoidance: "0", final_spend: "25.00", completed_count: 1, active_count: 0, verified_suppliers_count: 0, pending_tco_count: 0 } } }));
+  const payload = {
+    review_id: "reject-review", version: 4, offer_hash: "reject-hash", recommendation: "supplier", verdict: "Fornecedor dentro do limite de custo definido.", reason: "supplier_at_or_below_reliable_market", policy_version: "supplier-premium-v1", supplier_max_premium_percent: 5, supplier_premium_allowed: false, premium_limit_cents: 2600, savings_or_premium_cents: -100, savings_or_premium_percent: -3.85, comparison_provisional: false,
+    actual_supplier_tco_cents: 2500, actual_supplier_comparison_cents: 2500,
+    comparator_market_offer_id: "reject-market", comparator_market_cents: 2600, comparison_basis: "complete_tco", comparison_supplier_cents: 2500, pending_checks: [],
+    supplier_offer_id: "reject-supplier", selected_offer_id: "reject-supplier", candidates: [
+      { offer_id: "reject-supplier", supplier: "Fornecedor cotado", channel: "telegram", tco_cents: 2500, product_subtotal_cents: 2000, shipping_cents: 500, fees_cents: 0, lead_days: 2, available_qty: 3, reliable: true, comparable: true, is_completed_supplier: true, pending_checks: [] },
+      { offer_id: "reject-market", supplier: "Loja confiável", channel: "market", tco_cents: 2600, product_subtotal_cents: 2600, shipping_cents: 0, fees_cents: 0, lead_days: 2, available_qty: 5, reliable: true, comparable: true, pending_checks: [] },
+    ],
+  };
+  await page.route(`**/api/request/${id}/purchase-recommendation`, route => route.fulfill({ json: payload }));
+  let answer: any;
+  await page.route(`**/api/request/${id}/purchase-recommendation/approval`, async route => { answer = route.request().postDataJSON(); await route.fulfill({ json: { review_id: "reject-review", approved: false, selected_offer_id: "reject-supplier", version: 4 } }); });
+  await page.goto("/dashboard");
+  await page.locator("#kanban article").filter({ hasText: "Cabo de rede" }).locator('button[aria-pressed]').click();
+  const drawer = page.getByRole("dialog", { name: "Cabo de rede" });
+  await drawer.getByRole("button", { name: "Ver recomendação de compra" }).click();
+  await drawer.getByRole("button", { name: "Recusar" }).click();
+  expect(answer).toEqual({ review_id: "reject-review", version: 4, approved: false });
+  await expect(drawer.getByRole("status")).toContainText("Recomendação recusada e registrada.");
 });
 
 test("drawer displays partial supplier quote + market options in NEGOTIATING and internet preference in DONE", async ({ page }) => {

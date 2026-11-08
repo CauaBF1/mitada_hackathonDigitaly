@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-export const DEFAULT_SUPPLIER_PREFERENCE_FACTOR = 0.8;
+export const DEFAULT_SUPPLIER_MAX_PREMIUM_PERCENT = 5;
 export const JEV_GATE = 0.7;
 
 export type RecommendationRequest = {
@@ -73,6 +73,12 @@ export function buildJevRecommendationPayload(request: RecommendationRequest, of
     available_quantity: offer.available_qty,
     product_confirmed: !!offer.product_confirmed,
     destination_confirmed: !!offer.destination_confirmed,
+    supplier_quote_status: offer.is_completed_supplier ? 'completed_and_supplier_confirmed' : 'not_completed',
+    supplier_quote_confirmation: offer.is_completed_supplier ? {
+      product_and_destination_confirmed: !!offer.product_confirmed && !!offer.destination_confirmed,
+      structured_terms_present: offer.unit_cents !== null && offer.shipping_cents !== null && offer.fees_cents !== null && offer.lead_days !== null && offer.available_qty !== null,
+      evidence_note: 'These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included.',
+    } : null,
     complete_calculable_total: offer.tco_cents !== null,
     seller_confirmed_product_and_destination: !!offer.product_confirmed && !!offer.destination_confirmed,
     valid_until: offer.valid_until || null,
@@ -105,7 +111,7 @@ export function hashRecommendationInputs(offers: RecommendationOffer[], factor: 
   return createHash('sha256').update(JSON.stringify({ factor, context, offers: sorted })).digest('hex');
 }
 
-export function createRecommendationSummary(requestId: string, version: number, factor: number, offers: RecommendationOffer[], answers: Record<string, any>, explanation = '', completedQuoteId: string | null = null, quantity = 1) {
+export function createRecommendationSummary(requestId: string, version: number, maxPremiumPercent: number, offers: RecommendationOffer[], answers: Record<string, any>, explanation = '', completedQuoteId: string | null = null, quantity = 1) {
   const candidates: any[] = offers.map((offer) => {
     const equivalent = answers[`same_product_${offer.id}`]?.noul;
     const evidence = answers[`trustworthy_evidence_${offer.id}`]?.noul;
@@ -116,55 +122,73 @@ export function createRecommendationSummary(requestId: string, version: number, 
     const subtotal = Number.isSafeInteger(productSubtotal) && productSubtotal > 0 ? productSubtotal : null;
     const priceValid = subtotal !== null;
     const expired = !!offer.valid_until && Number.isFinite(Date.parse(offer.valid_until)) && Date.parse(offer.valid_until) < Date.now();
-    const comparable = priceValid && !expired && !(offer.available_qty !== null && offer.available_qty < quantity) && equivalenceProbability !== null && equivalenceProbability >= JEV_GATE;
-    const reliable = comparable && evidenceProbability !== null && evidenceProbability >= JEV_GATE;
+    const knownConfirmed = offer.is_completed_supplier === true && offer.product_confirmed === true && offer.destination_confirmed === true
+      && offer.shipping_cents !== null && offer.fees_cents !== null && offer.lead_days !== null && offer.available_qty !== null;
+    const modelComparable = equivalenceProbability !== null && equivalenceProbability >= JEV_GATE;
+    const comparable = priceValid && !expired && !(offer.available_qty !== null && offer.available_qty < quantity) && (knownConfirmed || modelComparable);
+    const reliable = comparable && (knownConfirmed || (evidenceProbability !== null && evidenceProbability >= JEV_GATE));
     const channel = channelOf(offer);
     const actualAmount = offer.tco_cents !== null ? offer.tco_cents : subtotal === null ? null : subtotal;
-    const adjusted = channel === 'market' || actualAmount === null ? null : Math.round(actualAmount * factor);
     return {
       offer_id: offer.id, supplier: offer.supplier, channel, source_url: offer.source_url || null,
+      unit_cents: offer.unit_cents, shipping_cents: offer.shipping_cents, fees_cents: offer.fees_cents,
+      lead_days: offer.lead_days, available_qty: offer.available_qty,
       tco_cents: offer.tco_cents, product_subtotal_cents: subtotal, eligible: offer.eligible, cost_complete: offer.tco_cents !== null,
       pending_checks: [offer.shipping_cents === null ? 'shipping' : null, offer.fees_cents === null ? 'fees' : null, offer.available_qty === null || offer.available_qty < quantity ? 'availability' : null, offer.lead_days === null ? 'lead_time' : null, !offer.product_confirmed ? 'product_confirmation' : null, !offer.destination_confirmed ? 'destination_confirmation' : null].filter(Boolean),
       equivalence_probability: equivalenceProbability, evidence_probability: evidenceProbability,
-      comparable, reliable, expired, comparison_amount_cents: actualAmount, adjusted_tco_cents: adjusted,
+      known_confirmed: knownConfirmed, is_completed_supplier: offer.is_completed_supplier === true,
+      comparable, reliable, expired, comparison_amount_cents: actualAmount,
     };
   });
   const reliableCandidates = candidates.filter((candidate) => candidate.reliable);
-  const useCompleteTco = reliableCandidates.some((candidate) => candidate.channel === 'market')
+  const useCompleteTco = (reliableCandidates.some((candidate) => candidate.channel === 'market')
     && reliableCandidates.some((candidate) => candidate.channel !== 'market')
-    && reliableCandidates.every((candidate) => candidate.tco_cents !== null);
+    && reliableCandidates.every((candidate) => candidate.tco_cents !== null))
+    || (!reliableCandidates.some((candidate) => candidate.channel === 'market') && reliableCandidates.length > 0 && reliableCandidates.every((candidate) => candidate.tco_cents !== null));
   const comparisonBasis = useCompleteTco ? 'complete_tco' : 'product_subtotal';
   const basisMarkets = (rows: any[]) => rows.filter((candidate) => candidate.channel === 'market' && candidate.comparable && candidate.reliable && (comparisonBasis === 'complete_tco' ? candidate.tco_cents !== null : candidate.product_subtotal_cents !== null));
   const markets = candidates.filter((candidate) => candidate.channel === 'market' && candidate.comparable && (comparisonBasis === 'complete_tco' ? candidate.tco_cents !== null : candidate.product_subtotal_cents !== null));
   const reliableMarkets = markets.filter((candidate) => candidate.reliable);
   const amount = (candidate:any) => comparisonBasis === 'complete_tco' ? candidate.tco_cents : candidate.product_subtotal_cents;
   const suppliers = candidates.filter((candidate) => candidate.channel !== 'market' && candidate.reliable && amount(candidate) !== null);
+  const displaySupplier = candidates.find((candidate) => candidate.offer_id === completedQuoteId) || null;
   const bestMarket = [...markets].sort((a, b) => amount(a)! - amount(b)!)[0] || null;
   const mostReliableMarket = [...markets].sort((a, b) => (b.evidence_probability ?? -1) - (a.evidence_probability ?? -1) || amount(a)! - amount(b)!)[0] || null;
   const comparatorMarket = [...basisMarkets(reliableMarkets)].sort((a, b) => amount(a)! - amount(b)!)[0] || null;
-  const supplier = [...suppliers].sort((a, b) => Math.round(amount(a)! * factor) - Math.round(amount(b)! * factor))[0] || null;
+  const supplier = [...suppliers].sort((a, b) => amount(a)! - amount(b)!)[0] || null;
   for (const candidate of candidates) {
     candidate.comparison_amount_cents = amount(candidate);
-    candidate.adjusted_comparison_cents = candidate.channel === 'market' || candidate.comparison_amount_cents === null ? null : Math.round(candidate.comparison_amount_cents * factor);
+    candidate.max_premium_cents = candidate.channel === 'market' || candidate.comparison_amount_cents === null ? null : Math.round(candidate.comparison_amount_cents * (1 + maxPremiumPercent / 100));
   }
-  const recommendation = supplier && comparatorMarket && supplier.adjusted_comparison_cents! <= comparatorMarket.comparison_amount_cents!
+  const supplierPremiumAllowed = !!supplier && supplier.known_confirmed && !!comparatorMarket
+    && supplier.lead_days !== null && comparatorMarket.lead_days !== null && supplier.lead_days <= comparatorMarket.lead_days
+    && supplier.tco_cents !== null && comparatorMarket.tco_cents !== null;
+  const supplierLimit = supplier && comparatorMarket
+    ? supplierPremiumAllowed ? Math.round(comparatorMarket.comparison_amount_cents! * (1 + maxPremiumPercent / 100)) : comparatorMarket.comparison_amount_cents
+    : null;
+  const supplierWithinLimit = comparatorMarket ? [...suppliers].sort((a, b) => amount(a)! - amount(b)!)
+    .find((candidate) => amount(candidate)! <= Math.round(amount(comparatorMarket)! * (supplierPremiumAllowed ? 1 + maxPremiumPercent / 100 : 1))) || null : null;
+  const confirmedSupplierWithoutMarket = !comparatorMarket && !!supplier && supplier.known_confirmed;
+  const recommendation = confirmedSupplierWithoutMarket ? 'supplier' : supplierWithinLimit && comparatorMarket
     ? 'supplier'
     : comparatorMarket ? 'market' : 'review';
-  const selectedOfferId = recommendation === 'supplier' ? supplier!.offer_id : recommendation === 'market' ? comparatorMarket!.offer_id : null;
-  const reason = recommendation === 'supplier' ? 'supplier_adjusted_cost_at_or_below_reliable_market'
+  const selectedOfferId = recommendation === 'supplier' ? (supplierWithinLimit || supplier)!.offer_id : recommendation === 'market' ? comparatorMarket!.offer_id : null;
+  const reason = recommendation === 'supplier' ? confirmedSupplierWithoutMarket ? 'only_confirmed_supplier_quote_no_valid_market_comparator' : supplierPremiumAllowed ? 'confirmed_supplier_within_max_premium' : 'supplier_at_or_below_reliable_market'
     : recommendation === 'market' ? 'no_supplier_meets_preference_threshold_against_reliable_market'
     : 'no_reliable_comparable_market_offer';
   return {
     review_id: randomUUID(), request_id: requestId, version,
-    offer_hash: hashRecommendationInputs(offers, factor),
+    offer_hash: hashRecommendationInputs(offers, maxPremiumPercent),
     recommendation, reason,
-    supplier_preference_factor: factor,
+    supplier_max_premium_percent: maxPremiumPercent,
+    premium_limit_cents: supplierLimit,
+    supplier_premium_allowed: supplierPremiumAllowed,
     comparison_basis: comparisonBasis,
     comparison_supplier_cents: supplier ? amount(supplier) : null,
-    supplier_offer_id: supplier?.offer_id ?? null,
-    actual_supplier_tco_cents: supplier?.tco_cents ?? null,
-    actual_supplier_comparison_cents: supplier ? amount(supplier) : null,
-    adjusted_supplier_tco_cents: supplier ? Math.round(amount(supplier)! * factor) : null,
+    supplier_offer_id: displaySupplier?.offer_id ?? supplier?.offer_id ?? null,
+    actual_supplier_tco_cents: displaySupplier?.tco_cents ?? supplier?.tco_cents ?? null,
+    actual_supplier_comparison_cents: displaySupplier ? amount(displaySupplier) : supplier ? amount(supplier) : null,
+    adjusted_supplier_tco_cents: null,
     best_market_offer_id: bestMarket?.offer_id ?? null,
     best_market_tco_cents: bestMarket?.tco_cents ?? null,
     best_market_comparison_cents: bestMarket ? amount(bestMarket) : null,
@@ -174,9 +198,13 @@ export function createRecommendationSummary(requestId: string, version: number, 
     comparator_market_tco_cents: comparatorMarket?.tco_cents ?? null,
     comparator_market_cents: comparatorMarket ? amount(comparatorMarket) : null,
     selected_offer_id: selectedOfferId,
+    verdict: confirmedSupplierWithoutMarket ? 'Única cotação confirmada; não há oferta de mercado comparável validada.' : recommendation === 'supplier' ? 'Fornecedor dentro do limite de custo definido.' : recommendation === 'market' ? 'Oferta de mercado validada tem menor custo comparável.' : 'Ainda não há oferta comparável validada para recomendar.',
+    savings_or_premium_cents: supplier && comparatorMarket ? amount(supplier)! - amount(comparatorMarket)! : null,
+    savings_or_premium_percent: supplier && comparatorMarket && amount(comparatorMarket)! > 0 ? Math.round((amount(supplier)! - amount(comparatorMarket)!) / amount(comparatorMarket)! * 10000) / 100 : null,
+    comparison_provisional: comparisonBasis === 'product_subtotal',
     threshold_market_tco_cents: comparatorMarket?.tco_cents ?? null,
     candidates,
-    pending_checks: [...new Set(candidates.flatMap((candidate:any) => candidate.pending_checks))],
+    pending_checks: [...new Set([selectedOfferId, comparatorMarket?.offer_id].filter(Boolean).flatMap((id) => candidates.find((candidate) => candidate.offer_id === id)?.pending_checks || []))],
     explanation: explanation || null,
     created_at: new Date().toISOString(),
     approval: null as null | { approved: boolean; selected_offer_id: string | null; at: string },

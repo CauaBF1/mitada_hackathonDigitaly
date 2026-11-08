@@ -1,0 +1,1642 @@
+{
+  "authorized_request_limit": 6,
+  "synthetic_data_only": true,
+  "requests": [
+    {
+      "request_number": 1,
+      "timestamp": "2026-11-08T16:00:18.908303+00:00",
+      "case": "confirmed_within_5_percent",
+      "synthetic_data": true,
+      "expected_recommendation": "supplier",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10500,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Teclado Logitech K120 preto novo",
+              "captured_offer_excerpt": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 10500,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 10500,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/",
+          "eligible": true,
+          "tco_cents": 10000,
+          "valid_until": null,
+          "listing_product_name": "Teclado Logitech K120 preto novo",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.96
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.7
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.82
+          }
+        },
+        "usage": {
+          "input_tokens": 1287,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "bdcae8f2-bd6f-4cd4-ade9-9fa56ffe1c5b",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "5030a253b6f5e6eab462a5df6c24c23ee396090d5eb6014b279625ee1d4444f5",
+        "recommendation": "supplier",
+        "reason": "confirmed_supplier_within_max_premium",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": 10500,
+        "supplier_premium_allowed": true,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 10500,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 10500,
+        "actual_supplier_comparison_cents": 10500,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": 10000,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": 10000,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": 10000,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "supplier",
+        "verdict": "Fornecedor dentro do limite de custo definido.",
+        "savings_or_premium_cents": 500,
+        "savings_or_premium_percent": 5,
+        "comparison_provisional": false,
+        "threshold_market_tco_cents": 10000,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 10500,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 2,
+            "available_qty": 5,
+            "tco_cents": 10500,
+            "product_subtotal_cents": 10500,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.96,
+            "evidence_probability": 0.7,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10500,
+            "max_premium_cents": 11025
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/",
+            "unit_cents": 10000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.82,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.838Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 2,
+      "timestamp": "2026-11-08T16:00:19.153173+00:00",
+      "case": "confirmed_above_5_percent",
+      "synthetic_data": true,
+      "expected_recommendation": "market",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10700,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Teclado Logitech K120 preto novo",
+              "captured_offer_excerpt": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 10700,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 10700,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/",
+          "eligible": true,
+          "tco_cents": 10000,
+          "valid_until": null,
+          "listing_product_name": "Teclado Logitech K120 preto novo",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.96
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.72
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.82
+          }
+        },
+        "usage": {
+          "input_tokens": 1287,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "13742c9b-d763-473e-90ec-07b80c0b04a9",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "24ffba34ae1b2d167dea63cd4b789415b640f3809e10449d3d0336034a1bc5ae",
+        "recommendation": "market",
+        "reason": "no_supplier_meets_preference_threshold_against_reliable_market",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": 10500,
+        "supplier_premium_allowed": true,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 10700,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 10700,
+        "actual_supplier_comparison_cents": 10700,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": 10000,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": 10000,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": 10000,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "market",
+        "verdict": "Oferta de mercado validada tem menor custo comparável.",
+        "savings_or_premium_cents": 700,
+        "savings_or_premium_percent": 7,
+        "comparison_provisional": false,
+        "threshold_market_tco_cents": 10000,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 10700,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 2,
+            "available_qty": 5,
+            "tco_cents": 10700,
+            "product_subtotal_cents": 10700,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.96,
+            "evidence_probability": 0.72,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10700,
+            "max_premium_cents": 11235
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/",
+            "unit_cents": 10000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.82,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.839Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 3,
+      "timestamp": "2026-11-08T16:00:19.409768+00:00",
+      "case": "only_confirmed_supplier_265",
+      "synthetic_data": true,
+      "expected_recommendation": "supplier",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 25000,
+              "shipping_cents": 1500,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "example.com",
+              "listing_product_name": "Produto sem modelo confirmado",
+              "captured_offer_excerpt": "Preço sem anúncio consultado, sem evidência do produto ou da oferta.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 6590,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": false,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": false,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 25000,
+          "shipping_cents": 1500,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 26500,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 6590,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Preço sem anúncio consultado, sem evidência do produto ou da oferta.",
+          "product_confirmed": false,
+          "destination_confirmed": true,
+          "source_url": "https://example.com/rumor",
+          "eligible": true,
+          "tco_cents": 6590,
+          "valid_until": null,
+          "listing_product_name": "Produto sem modelo confirmado",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.96
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.84
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.04
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.02
+          }
+        },
+        "usage": {
+          "input_tokens": 1247,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "b80f130a-bb48-4407-99ff-78a4f23ed6bb",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "967bf11b98a6a3ed7276a242f250751524dc62283063405575a34ba8bb435311",
+        "recommendation": "supplier",
+        "reason": "only_confirmed_supplier_quote_no_valid_market_comparator",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": null,
+        "supplier_premium_allowed": false,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 26500,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 26500,
+        "actual_supplier_comparison_cents": 26500,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": null,
+        "best_market_tco_cents": null,
+        "best_market_comparison_cents": null,
+        "most_reliable_market_offer_id": null,
+        "most_reliable_market_tco_cents": null,
+        "comparator_market_offer_id": null,
+        "comparator_market_tco_cents": null,
+        "comparator_market_cents": null,
+        "selected_offer_id": "supplier",
+        "verdict": "Única cotação confirmada; não há oferta de mercado comparável validada.",
+        "savings_or_premium_cents": null,
+        "savings_or_premium_percent": null,
+        "comparison_provisional": false,
+        "threshold_market_tco_cents": null,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 25000,
+            "shipping_cents": 1500,
+            "fees_cents": 0,
+            "lead_days": 2,
+            "available_qty": 5,
+            "tco_cents": 26500,
+            "product_subtotal_cents": 25000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.96,
+            "evidence_probability": 0.84,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 26500,
+            "max_premium_cents": 27825
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://example.com/rumor",
+            "unit_cents": 6590,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": 6590,
+            "product_subtotal_cents": 6590,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [
+              "product_confirmation"
+            ],
+            "equivalence_probability": 0.04,
+            "evidence_probability": 0.02,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": false,
+            "reliable": false,
+            "expired": false,
+            "comparison_amount_cents": 6590,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.839Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 4,
+      "timestamp": "2026-11-08T16:00:19.727303+00:00",
+      "case": "supplier_slower_no_premium",
+      "synthetic_data": true,
+      "expected_recommendation": "market",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10400,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 7,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Teclado Logitech K120 preto novo",
+              "captured_offer_excerpt": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 10400,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 7,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 10400,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$100.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/",
+          "eligible": true,
+          "tco_cents": 10000,
+          "valid_until": null,
+          "listing_product_name": "Teclado Logitech K120 preto novo",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.69
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.79
+          }
+        },
+        "usage": {
+          "input_tokens": 1287,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "433cfcd9-89cf-4d3f-bf80-25f9e61defb1",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "a63ccaad412f01788dbdc103f8d669b1b12137ccf9e524d7fce957a1102f7590",
+        "recommendation": "market",
+        "reason": "no_supplier_meets_preference_threshold_against_reliable_market",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": 10000,
+        "supplier_premium_allowed": false,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 10400,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 10400,
+        "actual_supplier_comparison_cents": 10400,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": 10000,
+        "best_market_comparison_cents": 10000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": 10000,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": 10000,
+        "comparator_market_cents": 10000,
+        "selected_offer_id": "market",
+        "verdict": "Oferta de mercado validada tem menor custo comparável.",
+        "savings_or_premium_cents": 400,
+        "savings_or_premium_percent": 4,
+        "comparison_provisional": false,
+        "threshold_market_tco_cents": 10000,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 10400,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 7,
+            "available_qty": 5,
+            "tco_cents": 10400,
+            "product_subtotal_cents": 10400,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.97,
+            "evidence_probability": 0.69,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10400,
+            "max_premium_cents": 10920
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/",
+            "unit_cents": 10000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.79,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.839Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 5,
+      "timestamp": "2026-11-08T16:00:19.960480+00:00",
+      "case": "incomplete_market_costs",
+      "synthetic_data": true,
+      "expected_recommendation": "market",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 25000,
+              "shipping_cents": 1500,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Teclado Logitech K120 preto novo",
+              "captured_offer_excerpt": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$240.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 24000,
+              "shipping_cents": null,
+              "fees_cents": null,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": false,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 25000,
+          "shipping_cents": 1500,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 26500,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 24000,
+          "shipping_cents": null,
+          "fees_cents": null,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Teclado Logitech K120 preto novo. Anúncio capturado: preço R$240.00 com frete incluído, sem taxas adicionais, estoque de cinco unidades, entrega em três dias.",
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/",
+          "eligible": false,
+          "tco_cents": null,
+          "valid_until": null,
+          "listing_product_name": "Teclado Logitech K120 preto novo",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.97
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.71
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.98
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.79
+          }
+        },
+        "usage": {
+          "input_tokens": 1290,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "00a52134-f2f4-4f3c-b02f-bee46b8c7ef9",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "38c011d8c3b4dfd8cbfcd562c3cb5fbdd34880a7b6ab6639d480996a2efb66e0",
+        "recommendation": "market",
+        "reason": "no_supplier_meets_preference_threshold_against_reliable_market",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": 24000,
+        "supplier_premium_allowed": false,
+        "comparison_basis": "product_subtotal",
+        "comparison_supplier_cents": 25000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 26500,
+        "actual_supplier_comparison_cents": 25000,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": "market",
+        "best_market_tco_cents": null,
+        "best_market_comparison_cents": 24000,
+        "most_reliable_market_offer_id": "market",
+        "most_reliable_market_tco_cents": null,
+        "comparator_market_offer_id": "market",
+        "comparator_market_tco_cents": null,
+        "comparator_market_cents": 24000,
+        "selected_offer_id": "market",
+        "verdict": "Oferta de mercado validada tem menor custo comparável.",
+        "savings_or_premium_cents": 1000,
+        "savings_or_premium_percent": 4.17,
+        "comparison_provisional": true,
+        "threshold_market_tco_cents": null,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 25000,
+            "shipping_cents": 1500,
+            "fees_cents": 0,
+            "lead_days": 2,
+            "available_qty": 5,
+            "tco_cents": 26500,
+            "product_subtotal_cents": 25000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.97,
+            "evidence_probability": 0.71,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 25000,
+            "max_premium_cents": 26250
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/",
+            "unit_cents": 24000,
+            "shipping_cents": null,
+            "fees_cents": null,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": null,
+            "product_subtotal_cents": 24000,
+            "eligible": false,
+            "cost_complete": false,
+            "pending_checks": [
+              "shipping",
+              "fees"
+            ],
+            "equivalence_probability": 0.98,
+            "evidence_probability": 0.79,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 24000,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [
+          "shipping",
+          "fees"
+        ],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.839Z",
+        "approval": null
+      }
+    },
+    {
+      "request_number": 6,
+      "timestamp": "2026-11-08T16:00:20.223653+00:00",
+      "case": "confirmed_supplier_beats_unknown_model_site",
+      "synthetic_data": true,
+      "expected_recommendation": "supplier",
+      "request": {
+        "model": "jev-1.14.0",
+        "state": {
+          "request": {
+            "product": "Teclado Logitech K120 preto novo",
+            "specifications": {
+              "model": "K120",
+              "color": "preto",
+              "condition": "novo"
+            },
+            "quantity": 1
+          },
+          "offers": [
+            {
+              "offer_id": "supplier",
+              "provenance": "direct_telegram_quote",
+              "channel": "telegram",
+              "source_host": null,
+              "listing_product_name": null,
+              "captured_offer_excerpt": null,
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 10000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 2,
+              "available_quantity": 5,
+              "product_confirmed": true,
+              "destination_confirmed": true,
+              "supplier_quote_status": "completed_and_supplier_confirmed",
+              "supplier_quote_confirmation": {
+                "product_and_destination_confirmed": true,
+                "structured_terms_present": true,
+                "evidence_note": "These are structured terms from the supplier quote saved after explicit supplier confirmation. No chat transcript is included."
+              },
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": true,
+              "valid_until": null
+            },
+            {
+              "offer_id": "market",
+              "provenance": "market_listing",
+              "channel": "market",
+              "source_host": "www.amazon.com.br",
+              "listing_product_name": "Teclado genérico de outra marca",
+              "captured_offer_excerpt": "Teclado genérico de marca diferente sem compatibilidade com o modelo pedido.",
+              "captured_listing_evidence_reference": false,
+              "requested_product": "Teclado Logitech K120 preto novo",
+              "requested_specifications": {
+                "model": "K120",
+                "color": "preto",
+                "condition": "novo"
+              },
+              "requested_quantity": 1,
+              "unit_price_cents": 9000,
+              "shipping_cents": 0,
+              "fees_cents": 0,
+              "lead_days": 3,
+              "available_quantity": 5,
+              "product_confirmed": false,
+              "destination_confirmed": true,
+              "supplier_quote_status": "not_completed",
+              "supplier_quote_confirmation": null,
+              "complete_calculable_total": true,
+              "seller_confirmed_product_and_destination": false,
+              "valid_until": null
+            }
+          ]
+        },
+        "questions": {
+          "same_product_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "instructions": "Does offer supplier include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          },
+          "same_product_market": {
+            "type": "noul",
+            "instructions": "Does offer market offer the same product with specifications that satisfy the requested product?",
+            "criteria": {
+              "true": "The market listing product name or the direct seller confirmation and captured quote facts establish the requested product and specifications.",
+              "false": "The offer appears to be a different product, a material specification conflicts, or the supplied facts do not establish a match."
+            }
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "instructions": "Does offer market include trustworthy evidence supporting the stated price and availability for this seller?",
+            "criteria": {
+              "true": "A concrete captured excerpt or structured quote terms, together with the channel or host and specific price and offer facts, directly support the stated offer and source.",
+              "false": "The source or captured facts are missing, weak, unrelated, or do not support the stated price and source identity."
+            }
+          }
+        }
+      },
+      "fixture_offers": [
+        {
+          "id": "supplier",
+          "supplier": "Fornecedor",
+          "event_id": "telegram:synthetic",
+          "supplier_chat_id": "private-not-sent",
+          "unit_cents": 10000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 2,
+          "available_qty": 5,
+          "conditions": null,
+          "product_confirmed": true,
+          "destination_confirmed": true,
+          "source_url": null,
+          "eligible": true,
+          "tco_cents": 10000,
+          "valid_until": null,
+          "is_completed_supplier": true
+        },
+        {
+          "id": "market",
+          "supplier": "Site",
+          "event_id": "market:synthetic",
+          "supplier_chat_id": null,
+          "unit_cents": 9000,
+          "shipping_cents": 0,
+          "fees_cents": 0,
+          "lead_days": 3,
+          "available_qty": 5,
+          "conditions": "Teclado genérico de marca diferente sem compatibilidade com o modelo pedido.",
+          "product_confirmed": false,
+          "destination_confirmed": true,
+          "source_url": "https://www.amazon.com.br/",
+          "eligible": true,
+          "tco_cents": 9000,
+          "valid_until": null,
+          "listing_product_name": "Teclado genérico de outra marca",
+          "is_completed_supplier": false
+        }
+      ],
+      "http_status": 200,
+      "response": {
+        "model": "jev-1.14.0",
+        "answers": {
+          "same_product_supplier": {
+            "type": "noul",
+            "noul": 0.96
+          },
+          "trustworthy_evidence_supplier": {
+            "type": "noul",
+            "noul": 0.75
+          },
+          "same_product_market": {
+            "type": "noul",
+            "noul": 0.02
+          },
+          "trustworthy_evidence_market": {
+            "type": "noul",
+            "noul": 0.05
+          }
+        },
+        "usage": {
+          "input_tokens": 1251,
+          "output_tokens": 86
+        }
+      },
+      "result_summary": {
+        "review_id": "cf613721-e970-42e0-9fbc-d05ca025ede6",
+        "request_id": "synthetic",
+        "version": 1,
+        "offer_hash": "37646f2e3c0a5af26acec501b621f20822b3e2c0868b02d43043a288372ed490",
+        "recommendation": "supplier",
+        "reason": "only_confirmed_supplier_quote_no_valid_market_comparator",
+        "supplier_max_premium_percent": 5,
+        "premium_limit_cents": null,
+        "supplier_premium_allowed": false,
+        "comparison_basis": "complete_tco",
+        "comparison_supplier_cents": 10000,
+        "supplier_offer_id": "supplier",
+        "actual_supplier_tco_cents": 10000,
+        "actual_supplier_comparison_cents": 10000,
+        "adjusted_supplier_tco_cents": null,
+        "best_market_offer_id": null,
+        "best_market_tco_cents": null,
+        "best_market_comparison_cents": null,
+        "most_reliable_market_offer_id": null,
+        "most_reliable_market_tco_cents": null,
+        "comparator_market_offer_id": null,
+        "comparator_market_tco_cents": null,
+        "comparator_market_cents": null,
+        "selected_offer_id": "supplier",
+        "verdict": "Única cotação confirmada; não há oferta de mercado comparável validada.",
+        "savings_or_premium_cents": null,
+        "savings_or_premium_percent": null,
+        "comparison_provisional": false,
+        "threshold_market_tco_cents": null,
+        "candidates": [
+          {
+            "offer_id": "supplier",
+            "supplier": "Fornecedor",
+            "channel": "telegram",
+            "source_url": null,
+            "unit_cents": 10000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 2,
+            "available_qty": 5,
+            "tco_cents": 10000,
+            "product_subtotal_cents": 10000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [],
+            "equivalence_probability": 0.96,
+            "evidence_probability": 0.75,
+            "known_confirmed": true,
+            "is_completed_supplier": true,
+            "comparable": true,
+            "reliable": true,
+            "expired": false,
+            "comparison_amount_cents": 10000,
+            "max_premium_cents": 10500
+          },
+          {
+            "offer_id": "market",
+            "supplier": "Site",
+            "channel": "market",
+            "source_url": "https://www.amazon.com.br/",
+            "unit_cents": 9000,
+            "shipping_cents": 0,
+            "fees_cents": 0,
+            "lead_days": 3,
+            "available_qty": 5,
+            "tco_cents": 9000,
+            "product_subtotal_cents": 9000,
+            "eligible": true,
+            "cost_complete": true,
+            "pending_checks": [
+              "product_confirmation"
+            ],
+            "equivalence_probability": 0.02,
+            "evidence_probability": 0.05,
+            "known_confirmed": false,
+            "is_completed_supplier": false,
+            "comparable": false,
+            "reliable": false,
+            "expired": false,
+            "comparison_amount_cents": 9000,
+            "max_premium_cents": null
+          }
+        ],
+        "pending_checks": [],
+        "explanation": null,
+        "created_at": "2026-11-08T16:00:36.840Z",
+        "approval": null
+      }
+    }
+  ]
+}

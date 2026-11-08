@@ -21,44 +21,45 @@ const answers = (offers, probabilities = {}) => Object.fromEntries(offers.flatMa
   [`trustworthy_evidence_${offer.id}`, { noul: probabilities[offer.id]?.evidence ?? 0.9 }],
 ]));
 const calculate = (supplierUnit, marketUnit, options = {}) => {
-  const offers = [direct('supplier-1', supplierUnit, options.shipping ?? null, options.fees ?? null), market('market-1', marketUnit)];
-  return createRecommendationSummary('request-1', 7, 0.8, offers, answers(offers), '', 'supplier-1', 2);
+  const offers = [direct('supplier-1', supplierUnit, 0, 0, { lead_days: 2, available_qty: 10, tco_cents: supplierUnit * 2, ...options }), market('market-1', marketUnit, { shipping_cents: 0, fees_cents: 0, lead_days: 2, available_qty: 10, tco_cents: marketUnit * 2 })];
+  return createRecommendationSummary('request-1', 7, 5, offers, answers(offers), '', 'supplier-1', 2);
 };
 
-let result = calculate(6000, 5000);
-assert.equal(result.recommendation, 'supplier', 'R$120 subtotal adjusted to R$96 beats R$100');
-assert.equal(result.comparison_basis, 'product_subtotal');
-assert.equal(result.comparison_supplier_cents, 12000);
-assert.equal(result.comparator_market_cents, 10000);
-assert.equal(result.adjusted_supplier_tco_cents, 9600);
-assert.equal(result.actual_supplier_tco_cents, null, 'unknown freight and fees stay null');
-assert.ok(result.pending_checks.includes('shipping'));
-
-result = calculate(6500, 5000);
-assert.equal(result.recommendation, 'market', 'R$130 subtotal adjusted to R$104 loses to R$100');
-assert.equal(result.selected_offer_id, 'market-1');
-result = calculate(6250, 5000);
-assert.equal(result.recommendation, 'supplier', 'exact 0.8 threshold is inclusive');
-result = calculate(6251, 5000);
-assert.equal(result.recommendation, 'market', 'one cent above the inclusive threshold selects market');
-
-const completeOffers = [
-  direct('supplier-complete', 6000, 1000, 100, { tco_cents: 13100 }),
-  market('market-complete', 5000, { shipping_cents: 1000, fees_cents: 100, tco_cents: 11100 }),
-];
-result = createRecommendationSummary('request-complete', 4, 0.8, completeOffers, answers(completeOffers), '', 'supplier-complete', 2);
+let result = calculate(5250, 5000);
+assert.equal(result.recommendation, 'supplier', 'confirmed supplier at exactly 5% premium qualifies');
 assert.equal(result.comparison_basis, 'complete_tco');
-assert.equal(result.comparison_supplier_cents, 13100);
-assert.equal(result.comparator_market_cents, 11100);
-assert.equal(result.recommendation, 'supplier', 'complete TCO values use the same full-cost basis');
+assert.equal(result.comparison_supplier_cents, 10500);
+assert.equal(result.comparator_market_cents, 10000);
+assert.equal(result.premium_limit_cents, 10500);
+assert.equal(result.supplier_premium_allowed, true);
+
+result = calculate(5350, 5000);
+assert.equal(result.recommendation, 'market', 'supplier above the configured premium loses');
+assert.equal(result.selected_offer_id, 'market-1');
+result = calculate(5200, 5000, { lead_days: 4 });
+assert.equal(result.recommendation, 'market', 'slower supplier gets no premium');
+assert.equal(result.supplier_premium_allowed, false);
+
+const partialOffers = [direct('supplier-partial', 5250), market('market-partial', 5000)];
+result = createRecommendationSummary('request-partial', 4, 5, partialOffers, answers(partialOffers), '', 'supplier-partial', 2);
+assert.equal(result.comparison_basis, 'product_subtotal');
+assert.equal(result.comparison_provisional, true);
+assert.equal(result.recommendation, 'market', 'unknown freight prevents the premium');
+assert.equal(result.candidates[0].shipping_cents, null, 'unknown freight remains null');
+
+const solo = [direct('supplier-solo', 26500, 0, 0, { lead_days: 2, available_qty: 10, tco_cents: 26500 })];
+result = createRecommendationSummary('request-solo', 4, 5, solo, answers(solo, { 'supplier-solo': { equivalent: 0.56, evidence: 0.33 } }), '', 'supplier-solo', 1);
+assert.equal(result.recommendation, 'supplier', 'the canonical completed quote remains recommendable with low Jev probabilities');
+assert.equal(result.selected_offer_id, 'supplier-solo');
+assert.match(result.verdict, /não há oferta de mercado comparável validada/);
 
 const uncertainOffers = [direct('supplier-2', 6250), market('market-2', 5000)];
-result = createRecommendationSummary('request-2', 3, 0.8, uncertainOffers,
+result = createRecommendationSummary('request-2', 3, 5, uncertainOffers,
   answers(uncertainOffers, { 'supplier-2': { evidence: 0.69 }, 'market-2': { evidence: 0.69 } }), '', 'supplier-2', 2);
-assert.equal(result.recommendation, 'review', 'probabilities below 0.7 do not select either offer');
+assert.equal(result.recommendation, 'review', 'unconfirmed quotes below the 0.7 confidence gates do not select either offer');
 
-const expiredOffers = [direct('supplier-3', 5000, null, null, { valid_until: '2000-01-01' }), market('market-3', 5000)];
-result = createRecommendationSummary('request-3', 1, 0.8, expiredOffers, answers(expiredOffers), '', 'supplier-3', 2);
+const expiredOffers = [direct('supplier-3', 5000, 0, 0, { lead_days: 1, available_qty: 10, tco_cents: 10000, valid_until: '2000-01-01' }), market('market-3', 5000)];
+result = createRecommendationSummary('request-3', 1, 5, expiredOffers, answers(expiredOffers), '', 'supplier-3', 2);
 assert.equal(result.candidates[0].expired, true);
 assert.notEqual(result.selected_offer_id, 'supplier-3');
 
@@ -72,4 +73,4 @@ assert.ok(!serialized.includes('pessoa@example.com'), 'email evidence is redacte
 assert.ok(!serialized.includes('11912345678'), 'phone evidence is redacted');
 assert.ok(!serialized.includes('token=secret'), 'URL query parameters are not sent');
 assert.ok(serialized.includes('captured_offer_excerpt'), 'captured offer evidence is available to Jev');
-console.log('PASS purchase recommendation rules: shared subtotal, 0.8 threshold, exact cents, uncertain evidence, expiration, missing-cost nulls, and Jev payload privacy.');
+console.log('PASS purchase recommendation rules: 5% confirmed-supplier premium, lead-time restriction, provisional subtotals, low-confidence canonical supplier, uncertainty, expiration, and payload privacy.');

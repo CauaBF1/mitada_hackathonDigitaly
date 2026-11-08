@@ -19,6 +19,15 @@ type RecommendationCandidate = {
   comparable: boolean;
   reliable: boolean;
   adjusted_tco_cents: number | null;
+  product_subtotal_cents?: number | null;
+  unit_cents?: number | null;
+  shipping_cents?: number | null;
+  fees_cents?: number | null;
+  lead_days?: number | null;
+  available_qty?: number | null;
+  pending_checks?: string[];
+  is_completed_supplier?: boolean;
+  known_confirmed?: Record<string, unknown>;
 };
 type PurchaseRecommendation = {
   review_id: string;
@@ -26,10 +35,7 @@ type PurchaseRecommendation = {
   offer_hash: string;
   recommendation: "supplier" | "market" | "review";
   reason: string;
-  supplier_preference_factor: number;
   actual_supplier_tco_cents: number | null;
-  adjusted_supplier_tco_cents: number | null;
-  adjusted_supplier_tco: string | null;
   best_market_offer_id: string | null;
   best_market_tco_cents: number | null;
   most_reliable_market_offer_id: string | null;
@@ -43,7 +49,16 @@ type PurchaseRecommendation = {
   explanation: string;
   comparison_basis: "complete_tco" | "product_subtotal";
   comparison_supplier_cents: number | null;
+  actual_supplier_comparison_cents?: number | null;
   comparator_market_cents: number | null;
+  premium_limit_cents?: number | null;
+  supplier_max_premium_percent?: number | null;
+  supplier_premium_allowed?: boolean;
+  savings_or_premium_cents?: number | null;
+  savings_or_premium_percent?: number | null;
+  comparison_provisional?: boolean;
+  policy_version?: string;
+  verdict?: string;
   pending_checks: string[];
   approval?: { approved: boolean; selected_offer_id: string | null; at: string } | null;
   stale?: boolean;
@@ -58,10 +73,6 @@ function percentage(value: number | null | undefined): string {
   return value == null || !Number.isFinite(value) ? "Não informado" : `${Math.round(value * 100)}%`;
 }
 
-function factor(value: number | null | undefined): string {
-  return value == null || !Number.isFinite(value) ? "0,8" : value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
-}
-
 function pendingChecksLabel(check: string): string {
   return ({ shipping: "frete", fees: "taxas", availability: "estoque", lead_time: "prazo de entrega", product_confirmed: "confirmação do produto", destination_confirmed: "confirmação do destino" } as Record<string, string>)[check] || check;
 }
@@ -74,6 +85,34 @@ function recommendationReason(review: PurchaseRecommendation): string {
     no_offers: "Ainda não há ofertas para comparar.",
   };
   return known[review.reason] || review.reason || review.explanation || "A recomendação foi calculada com as ofertas disponíveis.";
+}
+
+function offerPending(candidate: RecommendationCandidate | undefined, fallback: string[] = []): string[] {
+  const checks = candidate?.pending_checks?.length ? candidate.pending_checks : fallback;
+  return [...new Set(checks.map(pendingChecksLabel))];
+}
+
+function priceDifference(supplierCents: number | null, marketCents: number | null): string | null {
+  if (supplierCents == null || marketCents == null) return null;
+  const difference = supplierCents - marketCents;
+  if (difference === 0) return "Os valores comparáveis são iguais.";
+  const percent = marketCents === 0 ? null : Math.abs(difference / marketCents * 100);
+  const amount = `${brlCents(Math.abs(difference))}${percent === null ? "" : ` (${percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)`}`;
+  return difference > 0
+    ? `Fornecedor ${amount} acima do comparador confiável.`
+    : `Fornecedor ${amount} abaixo do comparador confiável.`;
+}
+
+function offerFacts(candidate: RecommendationCandidate | undefined, qty: number): string {
+  if (!candidate) return "Valores de frete, taxas e prazo não informados";
+  const parts: string[] = [];
+  if (candidate.product_subtotal_cents != null) parts.push(`produtos ${brlCents(candidate.product_subtotal_cents)}`);
+  else if (candidate.unit_cents != null) parts.push(`${brlCents(candidate.unit_cents)} / un. × ${qty}`);
+  parts.push(`frete ${brlCents(candidate.shipping_cents)}`);
+  parts.push(`taxas ${brlCents(candidate.fees_cents)}`);
+  parts.push(`prazo ${candidate.lead_days == null ? "não informado" : `${candidate.lead_days} dias`}`);
+  if (candidate.available_qty != null) parts.push(`estoque ${candidate.available_qty}`);
+  return parts.join(" · ");
 }
 
 const MISSING_LABELS: Record<string, string> = {
@@ -112,7 +151,7 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
   useEffect(() => {
     setDecisionError(""); setConfirmPurchase(false); setMarketError(""); setReputationMessage("");
     const saved = row?.latest_purchase_recommendation as PurchaseRecommendation | null | undefined;
-    const currentSaved = row && saved?.review_id && saved.version === row.version && !saved.stale && Array.isArray(saved.candidates) ? saved : null;
+    const currentSaved = row && saved?.review_id && saved.version === row.version && !saved.stale && saved.policy_version === "supplier-premium-v1" && Array.isArray(saved.candidates) ? saved : null;
     setRecommendation(currentSaved && row ? { key: `${row.id}:${row.version}`, data: currentSaved } : null);
     setRecommendationBusy(false); setRecommendationError(""); setApprovalBusy(false); setApprovalOutcome(currentSaved?.approval?.approved ?? null);
     recommendationBusyRef.current = false; approvalBusyRef.current = false;
@@ -198,54 +237,58 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
                 <h4 className="text-xs font-semibold text-slate-900">Recomendação de compra com Jev</h4>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-600">A análise só começa quando você solicita. Ela compara os termos registrados do fornecedor com as ofertas de mercado disponíveis e mostra quais evidências e custos ainda precisam de confirmação.</p>
               </div>
-              {!currentRecommendation && <button onClick={() => void createRecommendation()} disabled={recommendationBusy} className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50">{recommendationBusy ? "Analisando com Jev…" : "Automatizar recomendação com Jev"}</button>}
+              {!currentRecommendation && <button onClick={() => void createRecommendation()} disabled={recommendationBusy} className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50">{recommendationBusy ? "Analisando com Jev…" : "Ver recomendação de compra"}</button>}
               {recommendationBusy && <p role="status" className="text-[11px] text-slate-600">Aguarde a análise das ofertas para esta versão da solicitação.</p>}
               {currentRecommendation && (() => {
                 const review = currentRecommendation;
-                const cheapestMarket = review.candidates.find(candidate => candidate.offer_id === review.best_market_offer_id);
-                const reliableMarket = review.candidates.find(candidate => candidate.offer_id === review.most_reliable_market_offer_id);
-                const comparatorMarket = review.candidates.find(candidate => candidate.offer_id === review.comparator_market_offer_id);
-                const selected = review.candidates.find(candidate => candidate.offer_id === review.selected_offer_id);
                 const supplier = review.candidates.find(candidate => candidate.offer_id === review.supplier_offer_id)
-                  || (review.recommendation === "supplier" ? review.candidates.find(candidate => candidate.offer_id === review.selected_offer_id) : undefined);
-                const evaluatedMarketCount = review.candidates.filter(candidate => candidate.channel === "market").length;
-                const comparisonLabel = review.comparison_basis === "complete_tco" ? "TCO" : "Subtotal dos produtos";
-                const actualSupplierLabel = review.comparison_basis === "complete_tco" ? "TCO real do fornecedor" : "Preço real dos produtos cotados";
-                const actualSupplierDisplay = review.actual_supplier_tco_cents != null
-                  ? brlCents(review.actual_supplier_tco_cents)
-                  : row.quote?.final_price != null
-                    ? `${brl(row.quote.final_price)} / un. × ${row.qty} = ${brl((Number(row.quote.final_price) * row.qty).toFixed(2))}`
-                    : "Total completo não informado";
-                const cheapestMarketCents = cheapestMarket?.comparison_amount_cents ?? review.best_market_tco_cents;
-                const reliableMarketCents = reliableMarket?.comparison_amount_cents ?? review.most_reliable_market_tco_cents;
-                const comparatorMarketCents = review.comparator_market_cents ?? comparatorMarket?.comparison_amount_cents ?? review.comparator_market_tco_cents;
-                return <div className="space-y-3" data-review-id={review.review_id}>
-                  <div className={`rounded-lg p-3 ${review.recommendation === "review" ? "border border-amber-200 bg-amber-50" : "border border-violet-100 bg-violet-50/70"}`}>
-                    <p className="text-xs font-semibold text-slate-900">{review.recommendation === "supplier" ? `Recomendação: fornecedor${supplier?.supplier ? ` · ${supplier.supplier}` : ""}` : review.recommendation === "market" ? `Recomendação: mercado${selected?.supplier ? ` · ${selected.supplier}` : ""}` : "Recomendação bloqueada · revisão necessária"}</p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-slate-700">{recommendationReason(review)}</p>
-                    {review.recommendation !== "review" && selected && safeUrl(selected.source_url) && <a href={safeUrl(selected.source_url)} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-blue-700">Ver oferta recomendada <ExternalLink size={11} /></a>}
+                  || review.candidates.find(candidate => candidate.channel !== "market" && candidate.is_completed_supplier)
+                  || (review.recommendation === "supplier" ? review.candidates.find(candidate => candidate.channel !== "market") : undefined);
+                const market = review.candidates.find(candidate => candidate.offer_id === review.comparator_market_offer_id)
+                  || review.candidates.find(candidate => candidate.offer_id === review.most_reliable_market_offer_id)
+                  || review.candidates.find(candidate => candidate.channel === "market" && candidate.reliable && candidate.comparable);
+                const selected = review.recommendation === "market" ? review.candidates.find(candidate => candidate.offer_id === review.selected_offer_id) : undefined;
+                const recommendationName = review.recommendation === "supplier"
+                  ? `Comprar com ${supplier?.supplier || "fornecedor"}`
+                  : review.recommendation === "market" ? `Comprar no site ${selected?.supplier || "recomendado"}` : "Faltam dados para recomendar";
+                const supplierPrice = review.comparison_supplier_cents ?? review.actual_supplier_comparison_cents ?? supplier?.comparison_amount_cents ?? null;
+                const marketPrice = review.comparator_market_cents ?? market?.comparison_amount_cents ?? null;
+                const pending = offerPending(supplier, review.pending_checks || []);
+                const comparison = priceDifference(supplierPrice, marketPrice);
+                const provisional = review.comparison_provisional === true || review.comparison_basis === "product_subtotal";
+                const calculationLabel = provisional ? "Subtotal comparável" : "TCO comparável";
+                const premiumUsed = review.recommendation === "supplier" && review.supplier_premium_allowed === true && supplierPrice !== null && marketPrice !== null && supplierPrice > marketPrice;
+                return <div className="space-y-2.5" data-review-id={review.review_id}>
+                  <div className={`rounded-lg border p-3 ${review.recommendation === "review" ? "border-amber-200 bg-amber-50" : "border-violet-100 bg-violet-50/70"}`}>
+                    <p className="text-sm font-semibold text-slate-950">{recommendationName}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-slate-700">{review.verdict || recommendationReason(review)}</p>
+                    {comparison && <p className="mt-1 text-[11px] leading-snug text-slate-700">{comparison}</p>}
+                    {premiumUsed && review.supplier_max_premium_percent != null && <p className="mt-1 text-[11px] leading-snug text-slate-700">Limite da política: até {review.supplier_max_premium_percent.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% acima para fornecedor confirmado com prazo igual ou menor.</p>}
+                    {review.recommendation !== "review" && selected && safeUrl(selected.source_url) && <a href={safeUrl(selected.source_url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-blue-700">Ver oferta recomendada <ExternalLink size={11} /></a>}
                   </div>
-                  <dl className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-2">
-                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">{actualSupplierLabel}{supplier?.supplier ? ` · ${supplier.supplier}` : ""}</dt><dd className="mt-1 font-semibold text-slate-900">{actualSupplierDisplay}</dd></div>
-                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Menor {comparisonLabel} de mercado · {cheapestMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(cheapestMarketCents)}</dd></div>
-                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Mercado mais confiável · {reliableMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(reliableMarketCents)}</dd></div>
-                    <div className="rounded-lg bg-slate-50 p-2.5"><dt className="text-slate-500">Comparador confiável · {comparatorMarket?.supplier || "oferta elegível"}</dt><dd className="mt-1 font-semibold text-slate-900">{brlCents(comparatorMarketCents)}</dd></div>
-                  </dl>
-                  <div className="rounded-lg border border-slate-200 p-3 text-[11px] text-slate-700">
-                    <p className="font-semibold">Cálculo da preferência pelo fornecedor</p>
-                    <p className="mt-1">{comparisonLabel} do fornecedor ({brlCents(review.comparison_supplier_cents)}) × {factor(review.supplier_preference_factor)} = {brlCents(review.adjusted_supplier_tco_cents)} ajustados, comparados ao mercado confiável ({brlCents(comparatorMarketCents)}).</p>
-                    <p className="mt-1 text-slate-500">O fator {factor(review.supplier_preference_factor)} é apenas um ajuste para recomendar. O preço real da cotação permanece {actualSupplierDisplay}; não altera a cotação nem autoriza cobrança.</p>
-                    {review.comparison_basis === "product_subtotal" && <p className="mt-2 rounded-md bg-amber-50 p-2 text-amber-900">Comparação dos preços dos produtos. Frete, taxas e demais pendências ainda precisam ser confirmados.</p>}
+                  <div className="space-y-1.5" aria-label="Ofertas comparadas">
+                    <article className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="min-w-0"><p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Fornecedor cotado · {supplier?.supplier || row.quote?.supplier_name || "identificação pendente"}</p><p className="mt-0.5 text-[10px] leading-snug text-slate-700">{offerFacts(supplier, row.qty)}</p></div>
+                      <strong className="shrink-0 text-sm text-slate-950">{brlCents(supplierPrice)}</strong>
+                    </article>
+                    <article className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="min-w-0"><p className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Melhor oferta confiável · {market?.supplier || "mercado"}</p><p className="mt-0.5 text-[10px] leading-snug text-slate-700">{offerFacts(market, row.qty)}</p></div>
+                      <strong className="shrink-0 text-sm text-slate-950">{brlCents(marketPrice)}</strong>
+                    </article>
                   </div>
-                  {!!review.pending_checks?.length && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-900">Pendente de confirmação: {review.pending_checks.map(pendingChecksLabel).join(", ")}.</p>}
-                  <div>
-                    <p className="text-[10px] text-slate-500">{evaluatedMarketCount} oferta(s) de mercado avaliadas · {review.candidates.filter(candidate => candidate.channel === "market" && candidate.comparable && candidate.reliable).length} comparável(is) e confiável(is).</p>
-                    {!!review.candidates.length && <ul className="mt-2 space-y-1.5">{review.candidates.map(candidate => <li key={candidate.offer_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md bg-slate-50 px-2.5 py-2 text-[10px]">
-                      <span className="font-medium text-slate-800">{candidate.supplier} · {candidate.channel === "market" ? "mercado" : candidate.channel === "whatsapp" ? "WhatsApp" : "fornecedor"}</span>
-                      <span className="text-slate-600">{comparisonLabel} {brlCents(review.comparison_basis === "complete_tco" ? candidate.tco_cents : candidate.comparison_amount_cents)} · equivalência {percentage(candidate.equivalence_probability)} · evidência {percentage(candidate.evidence_probability)} · {candidate.comparable ? "comparável" : "não comparável"} · {candidate.reliable ? "confiável" : "confiabilidade pendente"}</span>
-                    </li>)}</ul>}
-                  </div>
-                  {review.recommendation === "review" ? <p role="status" className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-900">Análise bloqueada: {recommendationReason(review)} Verifique os termos da cotação e as evidências do mercado antes de decidir.</p> : approvalOutcome !== null ? <p role="status" className="rounded-lg bg-emerald-50 p-2.5 text-[11px] font-medium text-emerald-900">{approvalOutcome ? "Recomendação aceita e registrada." : "Recomendação rejeitada e resposta registrada."} A compra simulada continua dependendo da ação separada “Quero comprar”.</p> : <div className="flex flex-wrap gap-2"><button onClick={() => void approveRecommendation(true)} disabled={approvalBusy} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{approvalBusy ? "Registrando…" : "Sim, aceitar recomendação"}</button><button onClick={() => void approveRecommendation(false)} disabled={approvalBusy} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Não, rejeitar recomendação</button></div>}
+                  {provisional && <p className="rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">Comparação provisória por subtotal de produtos; o TCO completo ainda não está validado.</p>}
+                  {pending.length > 0 && <p className="rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">Falta confirmar: {pending.join(", ")}.</p>}
+                  {review.recommendation === "review" ? <p role="status" className="rounded-md bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900">{recommendationReason(review)} Revise os dados antes de decidir.</p> : approvalOutcome !== null ? <p role="status" className="rounded-md bg-emerald-50 px-2.5 py-2 text-[11px] font-medium text-emerald-900">{approvalOutcome ? "Recomendação aceita e registrada." : "Recomendação recusada e registrada."} Nenhuma compra ou mensagem foi enviada.</p> : <div className="flex flex-wrap gap-2"><button onClick={() => void approveRecommendation(true)} disabled={approvalBusy || review.stale} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{approvalBusy ? "Registrando…" : "Aceitar recomendação"}</button><button onClick={() => void approveRecommendation(false)} disabled={approvalBusy || review.stale} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Recusar</button></div>}
+                  {review.stale && <p role="status" className="text-[11px] text-amber-800">Esta análise está desatualizada. Gere uma nova recomendação para esta versão.</p>}
+                  <details className="rounded-md border border-slate-200 px-2.5 py-2 text-[11px] text-slate-700">
+                    <summary className="cursor-pointer font-medium">Detalhes da análise</summary>
+                    <div className="mt-2 space-y-2">
+                      <p>{recommendationReason(review)}</p>
+                      <p>{calculationLabel}: fornecedor {brlCents(supplierPrice)} e comparador confiável {brlCents(marketPrice)}. {review.supplier_premium_allowed && review.supplier_max_premium_percent != null ? `Margem máxima de ${review.supplier_max_premium_percent}% (limite ${brlCents(review.premium_limit_cents)}).` : "Margem adicional para o fornecedor não aplicada."}</p>
+                      {!!review.pending_checks?.length && <p>Pendências da análise: {review.pending_checks.map(pendingChecksLabel).join(", ")}.</p>}
+                      <ul className="space-y-1">{review.candidates.map(candidate => <li key={candidate.offer_id} className="flex flex-wrap justify-between gap-x-2 rounded bg-slate-50 px-2 py-1"><span>{candidate.supplier} · {candidate.channel === "market" ? "mercado" : "fornecedor"}</span><span>{calculationLabel} {brlCents(review.comparison_basis === "complete_tco" ? candidate.tco_cents : candidate.comparison_amount_cents)} · equivalência {percentage(candidate.equivalence_probability)} · evidência {percentage(candidate.evidence_probability)} · {candidate.reliable ? "confiável" : "confiabilidade pendente"}</span></li>)}</ul>
+                    </div>
+                  </details>
                 </div>;
               })()}
               {recommendationError && <p role="alert" className="text-xs text-rose-700">{recommendationError}</p>}
