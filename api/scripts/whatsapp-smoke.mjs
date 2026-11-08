@@ -8,14 +8,27 @@ import { createRequire } from 'node:module';
 const Database = createRequire(import.meta.url)('better-sqlite3');
 const dir = mkdtempSync(join(tmpdir(), 'nexo-whatsapp-'));
 const dbPath = join(dir, 'business.sqlite');
-const sends = [], interpretations = [];
-let sendMode = 'ok', parseMode = 'full', parseFailures = 0;
+const sends = [], interpretations = [], telegramSends = [];
+const voiceAttempts = [];
+let callMode = 'reject', callEnded = false;
+const fakeCallId = '00112233-4455-6677-8899-aabbccddeeff';
+let sendMode = 'ok', parseMode = 'full', parseFailures = 0, sendDelayMs = 0;
 const full = { unit_cents: 5000, shipping_cents: 100, fees_cents: 0, lead_days: 2, available_qty: 5, product_confirmed: true, destination_confirmed: true, pending: [] };
 const fake = createServer(async (req, res) => {
   let raw = ''; for await (const chunk of req) raw += chunk;
   const body = raw ? JSON.parse(raw) : {};
   res.setHeader('content-type', 'application/json');
   if (req.url === '/tasks') { res.writeHead(202).end('{"accepted":true}'); return; }
+  if (req.url === '/bottest-telegram/sendMessage') { telegramSends.push(body); res.end(JSON.stringify({ ok:true, result:{ message_id:9000+telegramSends.length } })); return; }
+  if (req.url === '/voice/call') {
+    assert.equal(req.headers.authorization,'Bearer internal-test'); voiceAttempts.push(body);
+    if (callMode==='reject') { res.writeHead(502).end('{"detail":"Provider rejected call"}'); return; }
+    res.writeHead(201).end(JSON.stringify({call_id:fakeCallId,status:'queued',provider:'vapi'})); return;
+  }
+  if (req.url === `/voice/call/${fakeCallId}`) {
+    assert.equal(req.headers.authorization,'Bearer internal-test');
+    res.end(JSON.stringify({call_id:fakeCallId,status:callEnded?'ended':'ringing',ended_reason:'customer-did-not-answer',request_id:voiceAttempts.at(-1).request_id,supplier_id:'teste-whatsapp'})); return;
+  }
   if (req.url === '/interpret-quote') {
     assert.equal(req.headers.authorization, 'Bearer internal-test'); interpretations.push(body);
     if (parseFailures-- > 0) { res.writeHead(503).end('{}'); return; }
@@ -28,6 +41,7 @@ const fake = createServer(async (req, res) => {
   }
   assert.equal(req.url, '/message/sendText/nexo'); assert.equal(req.headers.apikey, 'evolution-test');
   sends.push(body);
+  if (sendDelayMs) await new Promise(resolve => setTimeout(resolve, sendDelayMs));
   if (sendMode === 'disconnect') { req.socket.destroy(); return; }
   if (sendMode === 'reject') { res.writeHead(400).end('{}'); return; }
   res.end(JSON.stringify({ key: { id: `out-${sends.length}` } }));
@@ -38,11 +52,12 @@ const portServer = createServer(); await new Promise(resolve => portServer.liste
 const port = portServer.address().port; await new Promise(resolve => portServer.close(resolve));
 const base = `http://127.0.0.1:${port}`;
 let child, logs = '', db;
-async function start() {
+async function start(testSupplierNumber = '', telegramEnabled = false) {
   child = spawn(process.execPath, ['dist/main.js'], { stdio: ['ignore','pipe','pipe'], env: {
     ...process.env, PORT: String(port), DATABASE_PATH: dbPath, AGENT_URL: fakeUrl, INTERNAL_API_TOKEN: 'internal-test',
     WHATSAPP_API_URL: fakeUrl, WHATSAPP_API_KEY: 'evolution-test', WHATSAPP_INSTANCE_NAME: 'nexo', WHATSAPP_WEBHOOK_SECRET: 'wa-secret',
-    VOICE_WEBHOOK_SECRET: 'voice-secret', TELEGRAM_BOT_TOKEN: '',
+    VOICE_WEBHOOK_SECRET: 'voice-secret', TELEGRAM_BOT_TOKEN: telegramEnabled ? 'test-telegram' : '', TELEGRAM_API_URL: fakeUrl, TELEGRAM_ALLOWED_CHAT_IDS: '777',
+    WHATSAPP_TEST_SUPPLIER_NUMBER: testSupplierNumber,
   } });
   child.stdout.on('data', d => logs += d); child.stderr.on('data', d => logs += d);
   for (let i = 0; i < 100; i++) {
@@ -89,8 +104,13 @@ try {
   const loop = inbound('from-me'); loop.data.key.fromMe = true;
   assert.equal((await wa(loop)).body.ignored,'from-me');
   const group = inbound('group'); group.data.key.remoteJid='123@g.us'; assert.equal((await wa(group)).body.ignored,'unsupported-sender');
+  group.data.key.remoteJidAlt='5511999999999@s.whatsapp.net'; assert.equal((await wa(group)).body.ignored,'unsupported-sender');
+  const lid = inbound('lid-missing-phone'); lid.data.key.remoteJid='123456789@lid';
+  assert.equal((await wa(lid)).body.ignored,'unsupported-sender');
+  lid.data.key.remoteJidAlt='123456789@lid'; assert.equal((await wa(lid)).body.ignored,'unsupported-sender');
   assert.equal((await wa(inbound('stranger','5511888888888'))).body.ignored,'unknown-contact');
-  parseMode='partial'; await wa(inbound('partial'));
+  const partial = inbound('partial'); partial.data.key.remoteJid='123456789@lid'; partial.data.key.remoteJidAlt='5511999999999@s.whatsapp.net';
+  parseMode='partial'; assert.equal((await wa(partial)).body.status,'processed');
   let current = (await json(`/requests/${id}`)).body;
   assert.equal(current.status,'comparação'); assert.equal(current.quotes.length,1); assert.equal(current.quotes[0].eligible,false);
   assert.match(sends.at(-1).text,/frete, taxas, prazo, disponibilidade/); assert.doesNotMatch(sends.at(-1).text,/preço unitário/);
@@ -109,7 +129,10 @@ try {
   const second = await create(); await voice(second,'second-call');
   const parent=db.prepare('SELECT message_id FROM whatsapp_delivery WHERE request_id=?').get(second).message_id;
   assert.equal((await wa(inbound('ambiguous'))).body.ignored,'ambiguous-request');
-  parseMode='before-price'; await wa(inbound('before-price','5511999999999',parent));
+  const quotedConversation = inbound('before-price');
+  quotedConversation.data.contextInfo = { stanzaId: parent };
+  quotedConversation.data.message = { conversation: 'Cotação' };
+  parseMode='before-price'; assert.equal((await wa(quotedConversation)).body.status,'processed');
   assert.equal((await json(`/requests/${second}`)).body.quotes.length,0);
   parseMode='price-only'; await wa(inbound('price','5511999999999',parent));
   assert.equal((await json(`/requests/${second}`)).body.quotes[0].eligible,true);
@@ -123,6 +146,9 @@ try {
   assert.equal(db.prepare("SELECT attempts FROM whatsapp_updates ORDER BY rowid DESC LIMIT 1").get().attempts,2);
   const history=(await json(`/requests/${second}/messages`)).body;
   assert.ok(history.some(m=>m.sender_type==='AI')); assert.ok(history.some(m=>m.sender_type==='SUPPLIER'));
+  assert.ok(history.every(m=>m.channel==='whatsapp'));
+  assert.ok(history.some(m=>m.sender_type==='AI' && m.delivery_status==='sent'));
+  assert.ok(history.some(m=>m.sender_type==='SUPPLIER' && m.delivery_status==='received'));
   // Network ambiguity never triggers automatic duplicate sends.
   sendMode='disconnect'; const uncertain=await voice(second,'uncertain'); assert.equal(uncertain.body.fallback.status,'uncertain');
   const count=sends.length; await voice(second,'uncertain'); assert.equal(sends.length,count);
@@ -135,6 +161,76 @@ try {
   await json(`/requests/${second}/decision`,{quote_id:chosen.id,version:current.version});
   assert.equal((await voice(second,'after-decision')).body.ignored,'decided');
   assert.equal((await wa(inbound('after-decision','5511999999999',parent))).body.ignored,'decided');
-  console.log('PASS WhatsApp HTTP: auth, voice statuses/Vapi, dedupe, partial quotes/pending, pre-price state, supplier isolation, ambiguous replies, restart/retry/exhaustion, uncertain delivery, immutable decisions');
+  // WhatsApp-first contact uses a durable 30-second deadline and preserves channel identity.
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_contacts WHERE supplier_id='teste-whatsapp'").get().n,0);
+  await stop(); await start('+5517991636725', true);
+  const sendCountBefore = sends.length;
+  const first = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  assert.equal(first.status,201);
+  const firstId=first.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(firstId)?.status==='wa_waiting');
+  const firstFlow=db.prepare('SELECT * FROM whatsapp_contact_flow WHERE request_id=?').get(firstId);
+  assert.equal(sends.length,sendCountBefore+1); assert.equal(voiceAttempts.length,0,'new contact flow must not initiate voice');
+  const scheduledAt=Date.parse(firstFlow.next_check_at), sentAt=Date.parse(db.prepare('SELECT created_at FROM whatsapp_delivery WHERE request_id=?').get(firstId).created_at);
+  assert.ok(scheduledAt-sentAt>=29000 && scheduledAt-sentAt<=35000);
+  assert.equal((await json(`/requests/${firstId}`)).body.whatsapp_pending.length,0);
+  const firstMsg=db.prepare('SELECT message_id FROM whatsapp_delivery WHERE request_id=?').get(firstId).message_id;
+  assert.equal((await wa(inbound('recognized-reply','5517991636725',firstMsg,'Confirmo a cotação'))).body.status,'processed');
+  assert.equal(db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(firstId).status,'done');
+  await new Promise(resolve=>setTimeout(resolve,400)); assert.equal(telegramSends.length,0,'recognized WhatsApp reply cancels Telegram fallback');
+  // A correlated supplier reply can arrive while the opening send awaits its Evolution acknowledgement.
+  await stop(); await start('+5522888888888', true); sendDelayMs=500;
+  const delayedReply = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  assert.equal(delayedReply.status,201); const delayedReplyId=delayedReply.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_delivery WHERE request_id=?').get(delayedReplyId)?.status==='sending');
+  sendDelayMs=0;
+  assert.equal((await wa(inbound('reply-before-ack','5522888888888',undefined,'Confirmo a cotação'))).body.status,'processed');
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(delayedReplyId)?.status==='done');
+  await until(()=>db.prepare("SELECT status FROM whatsapp_delivery WHERE request_id=? AND content LIKE 'Olá! Você poderia cotar %'").get(delayedReplyId)?.status==='sent');
+  assert.equal(telegramSends.length,0,'reply during an outstanding WhatsApp send suppresses fallback');
+  sendDelayMs=500;
+  const cancelledFlow = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  assert.equal(cancelledFlow.status,201); const cancelledFlowId=cancelledFlow.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_delivery WHERE request_id=?').get(cancelledFlowId)?.status==='sending');
+  // Apply the same durable state transition as cancelContact while the provider ACK is delayed.
+  db.prepare("UPDATE whatsapp_contact_flow SET status='cancelled',next_check_at=NULL WHERE request_id=? AND status='ready'").run(cancelledFlowId);
+  sendDelayMs=0; await until(()=>db.prepare('SELECT status FROM whatsapp_delivery WHERE request_id=?').get(cancelledFlowId)?.status==='sent');
+  await new Promise(resolve=>setTimeout(resolve,500));
+  assert.equal(db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(cancelledFlowId).status,'cancelled');
+  assert.equal(telegramSends.length,0,'cancelled contact flow cannot be reopened after delayed ACK');
+  const timedOutRequest = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  assert.equal(timedOutRequest.status,201); const secondId=timedOutRequest.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(secondId)?.status==='wa_waiting');
+  const secondMessageCount=sends.length;
+  // Move the persisted deadline into the past to model elapsed 30 seconds without sleeping.
+  db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=? WHERE request_id=?').run(new Date(Date.now()-1).toISOString(),secondId);
+  await stop(); await start('+5517991636725', true);
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(secondId)?.status==='done');
+  assert.equal(sends.length,secondMessageCount,'restart must not resend an accepted WhatsApp message');
+  assert.equal(telegramSends.length,1); assert.equal(telegramSends[0].chat_id,'777');
+  const secondHistory=(await json(`/requests/${secondId}/messages`)).body;
+  assert.ok(secondHistory.some(m=>m.channel==='whatsapp'&&m.supplier_id==='whatsapp:teste-whatsapp'));
+  assert.ok(secondHistory.some(m=>m.channel==='telegram'&&m.supplier_id==='telegram:777'));
+  sendMode='disconnect';
+  const uncertainRequest = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  assert.equal(uncertainRequest.status,201); const uncertainId=uncertainRequest.body.id;
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(uncertainId)?.status==='wa_waiting');
+  const uncertainSends=sends.length;
+  assert.equal(db.prepare('SELECT status FROM whatsapp_delivery WHERE request_id=?').get(uncertainId).status,'uncertain');
+  db.prepare('UPDATE whatsapp_contact_flow SET next_check_at=? WHERE request_id=?').run(new Date(Date.now()-1).toISOString(),uncertainId);
+  await stop(); await start('+5517991636725', true);
+  await until(()=>db.prepare('SELECT status FROM whatsapp_contact_flow WHERE request_id=?').get(uncertainId)?.status==='done');
+  assert.equal(sends.length,uncertainSends,'uncertain WhatsApp delivery must never be resent after restart');
+  assert.equal(telegramSends.length,2,'fallback proceeds after the stored wait without assuming WhatsApp delivery');
+  sendMode='ok';
+  await stop(); await start('+5533888888888', true); sendDelayMs=500;
+  const deleted = await json('/requests', { product:'SSD',qty:2,destination:'01001-000',specs:{} });
+  const deletedId=deleted.body.id; await until(()=>db.prepare('SELECT status FROM whatsapp_delivery WHERE request_id=?').get(deletedId)?.status==='sending');
+  const beforeDelete=telegramSends.length; assert.equal((await fetch(`${base}/requests/${deletedId}`,{method:'DELETE'})).status,200);
+  sendDelayMs=0; await new Promise(resolve=>setTimeout(resolve,600));
+  assert.equal(db.prepare('SELECT 1 FROM whatsapp_contact_flow WHERE request_id=?').get(deletedId),undefined);
+  assert.equal(telegramSends.length,beforeDelete,'deleted requests cannot trigger fallback during delayed acknowledgement');
+  console.log('PASS WhatsApp-first routing: exact persisted 30s deadline, reply cancellation including reply/cancel during delayed ACK, deletion during delayed ACK, no voice start, restart-safe no-resend for accepted/uncertain WA, authorized Telegram fallback, channel identity, deletion');
+  console.log('PASS WhatsApp HTTP: auth, voice callbacks, dedupe, partial quotes/pending, pre-price state, supplier isolation, ambiguous replies, restart/retry/exhaustion, uncertain delivery, immutable decisions');
 } catch(e) { console.error(e); console.error(logs); process.exitCode=1; }
 finally { if(child?.exitCode===null) await stop(); db?.close(); await new Promise(resolve=>fake.close(resolve)); rmSync(dir,{recursive:true,force:true}); }

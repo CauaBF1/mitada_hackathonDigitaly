@@ -6,7 +6,7 @@ const base = () => (process.env.API_URL || "http://127.0.0.1:4000").replace(/\/$
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 async function upstream(path: string, init: RequestInit = {}) {
-  const timeout = path.endsWith("/reputation-refresh") ? 40000 : path === "integrations/search" ? 30000 : 12000;
+  const timeout = path === "integrations/search" ? 30000 : (path.endsWith("/reputation-refresh") || path.includes("/price-history")) ? 40000 : 12000;
   return fetch(`${base()}/${path.replace(/^\//, "")}`, { ...init, cache: "no-store", signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout), headers: { "Content-Type": "application/json", ...init.headers } });
 }
 function asRun(row: any) {
@@ -15,6 +15,7 @@ function asRun(row: any) {
   const rawErrors = [...(Array.isArray(analysis.errors) ? analysis.errors : []), ...(Array.isArray(analysis.discovery?.errors) ? analysis.discovery.errors : [])];
   const errors = [...new Set(rawErrors.filter((value: unknown): value is string => typeof value === "string"))];
   const sources = quotes.flatMap((quote: any) => {
+    if (quote.channel === "whatsapp" || String(quote.event_id || "").startsWith("whatsapp:")) return [];
     let url: URL;
     try { url = new URL(quote.source_url); if (!["http:", "https:"].includes(url.protocol)) return []; } catch { return []; }
     const productName = String(quote.conditions || "").split(" | ")[0] || row.product;
@@ -102,16 +103,16 @@ function asRun(row: any) {
   const preferredMarketSource = preferredMarketQuoteId ? sources.find((item: any) => item.quote_id === preferredMarketQuoteId) : null;
   const chosenUrl = preferredMarketSource?.product_url || chosen?.source_url || null;
   const audit = confirmedQuote ? {
-    additional_costs: [], additional_cost_total: (Number(chosen.fees_cents || 0) / 100).toFixed(2), source_type: "legacy_unverified",
+    additional_costs: null, additional_cost_total: chosen.fees_cents == null ? null : (Number(chosen.fees_cents) / 100).toFixed(2), source_type: "legacy_unverified",
     agreement_status: "confirmed_quote", savings_status: "legacy_unverified", confidence: "legacy_unverified", missing_information: [], roi_basis: "tco_v1",
-    deal_closed: true, final_unit_price: (Number(chosen.unit_cents) / 100).toFixed(2),
-    final_shipping_fee: (Number(chosen.shipping_cents) / 100).toFixed(2), final_total_cost: Number(chosen.tco).toFixed(2),
+    deal_closed: true, final_unit_price: chosen.unit_cents == null ? null : (Number(chosen.unit_cents) / 100).toFixed(2),
+    final_shipping_fee: chosen.shipping_cents == null ? null : (Number(chosen.shipping_cents) / 100).toFixed(2), final_total_cost: chosen.tco == null ? null : Number(chosen.tco).toFixed(2),
     audit_justification: "Decisão humana registrada na API Nest. TCO e valores refletem a proposta persistida; economia não calculada por ausência de baseline negociado.",
     shipping_savings: null, tco_savings: null, tco_cost_avoidance: null,
-    final_price: (Number(chosen.unit_cents) / 100).toFixed(2), shipping_fee: (Number(chosen.shipping_cents) / 100).toFixed(2),
+    final_price: chosen.unit_cents == null ? null : (Number(chosen.unit_cents) / 100).toFixed(2), shipping_fee: chosen.shipping_cents == null ? null : (Number(chosen.shipping_cents) / 100).toFixed(2),
     delivery_days: chosen.lead_days, delivery_day_type: "unspecified", quantity: row.qty,
-    product_subtotal: (Number(chosen.unit_cents * row.qty) / 100).toFixed(2), initial_tco: null,
-    final_tco: Number(chosen.tco).toFixed(2), market_tco: null, hard_savings: null, cost_avoidance: null,
+    product_subtotal: Number.isSafeInteger(Number(chosen.unit_cents) * row.qty) ? (Number(chosen.unit_cents * row.qty) / 100).toFixed(2) : null, initial_tco: null,
+    final_tco: chosen.tco == null ? null : Number(chosen.tco).toFixed(2), market_tco: null, hard_savings: null, cost_avoidance: null,
     justification: "Registro factual da proposta escolhida e da decisão humana.", limitations: ["Baseline de mercado e preço anterior não disponíveis; economias não calculadas."],
     evidence_message_ids: [], audited_at: chosen.created_at,
   } : completedQuote && Number.isSafeInteger(completedQuote.unit_cents) && completedQuote.unit_cents > 0 ? {
@@ -148,15 +149,18 @@ function asRun(row: any) {
   return {
     id: String(row.id), version: row.version, item: row.product, qty: row.qty, requested_target: null, target_price: null,
     market_average: marketAverage, status, stage: row.status, sources, reputations, reputation_indications, purchase_simulation: row.purchase_simulation || null,
+    whatsapp_pending: Array.isArray(row.whatsapp_pending) ? row.whatsapp_pending : [],
     quote_completion_state: row.quote_completion_state || "coletando",
     missing_fields: Array.isArray(draft?.missing_fields) ? draft.missing_fields : [],
     preferred_market_quote_id: preferredMarketQuoteId,
     preferred_market_at: row.preferred_market_at || null,
     selected_product_url: chosenUrl,
     quote: chosen ? {
+      channel: chosen.channel === "whatsapp" || String(chosen.event_id || "").startsWith("whatsapp:") ? "whatsapp" : chosen.channel === "telegram" || chosen.supplier_chat_id != null || !chosen.source_url ? "telegram" : "market",
+      supplier_id: chosen.supplier_id == null ? (chosen.supplier_chat_id == null ? null : `telegram:${chosen.supplier_chat_id}`) : String(chosen.supplier_id),
       additional_costs: null, initial_additional_costs: null, supplier_domain: (() => { try { return new URL(chosen.source_url).hostname.replace(/^www\./, ""); } catch { return null; } })(),
       supplier_name: chosen.supplier, product_name: String(chosen.conditions || "").split(" | ")[0] || row.product,
-      quantity: row.qty, delivery_location: row.destination, initial_message_id: null, initial_offer_evidence: [], source_type: chosen.source_url ? "legacy_unverified" : "supplier_telegram",
+      quantity: row.qty, delivery_location: row.destination, initial_message_id: null, initial_offer_evidence: [], source_type: chosen.channel === "whatsapp" || String(chosen.event_id || "").startsWith("whatsapp:") ? "supplier_whatsapp" : chosen.source_url ? "legacy_unverified" : "supplier_telegram",
       id: chosen.id != null ? String(chosen.id) : snapshotQuoteId != null ? String(snapshotQuoteId) : null, agreement_status: confirmedQuote || completedQuote ? "confirmed_quote" : "legacy_unverified", request_id: String(row.id), event_id: chosen.event_id || `quote:${chosen.id}`,
       product_url: chosen.source_url || "",
       initial_price: chosen.unit_cents == null ? null : (Number(chosen.unit_cents) / 100).toFixed(2),
@@ -173,7 +177,7 @@ function asRun(row: any) {
     hard_savings: null, cost_avoidance: null, errors, notice: row.notice || null,
     created_at: row.created_at, updated_at: row.created_at, data_mode: "real", mode: "live",
     delivery_location: row.destination, tco_base: null, market_shipping: null, target_basis: "complete_tco", audit,
-    candidates: quotes.flatMap((quote: any) => { try { const url = new URL(quote.source_url); return [{ url: url.href, title: quote.supplier, description: String(quote.conditions || ""), kind: "product", price: (Number(quote.unit_cents) / 100).toFixed(2), product_name: String(quote.conditions || "").split(" | ")[0] || row.product, error: null }]; } catch { return []; } }),
+    candidates: quotes.flatMap((quote: any) => { if (quote.channel === "whatsapp" || String(quote.event_id || "").startsWith("whatsapp:")) return []; try { const url = new URL(quote.source_url); return [{ url: url.href, title: quote.supplier, description: String(quote.conditions || ""), kind: "product", price: (Number(quote.unit_cents) / 100).toFixed(2), product_name: String(quote.conditions || "").split(" | ")[0] || row.product, error: null }]; } catch { return []; } }),
     comparison_item: analysis.query || row.product, selected_candidate_url: chosenUrl,
     blocked_sites: new Set(errors.filter((error: string) => /bloquead[ao].*HTTP 403/i.test(error)).map((error: string) => error.match(/(?:www\.)?[\w.-]+\.[a-z]{2,}/i)?.[0]).filter(Boolean)).size,
     discovery_justification: analysis.discovery?.justification || null, discovery_plan: null, supplier_profiles: {}, tactical_summary: null, model_used: null,
@@ -189,7 +193,7 @@ async function dashboard() {
   const quotes = rows.flatMap((row: any) => Array.isArray(row.quotes) ? row.quotes : []);
   return json({ data_mode: "real", metrics_available: false, total_runs: runs.length, runs, metrics: {
     // A API atual não registra baseline de mercado; nenhuma economia/preço final é inferida.
-    hard_savings: "0.00", cost_avoidance: "0.00", final_spend: "0.00",
+    hard_savings: null, cost_avoidance: null, final_spend: null,
     completed_count: runs.filter((row: any) => row.status === "DONE").length,
     active_count: active, verified_suppliers_count: new Set(quotes.filter((quote: any) => quote.source_url && quote.product_confirmed && quote.destination_confirmed).map((quote: any) => quote.supplier).filter(Boolean)).size,
     pending_tco_count: quotes.filter((quote: any) => quote.tco === null).length,
@@ -205,6 +209,12 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const origin = request.headers.get("origin");
   if (origin) { try { if (new URL(origin).host !== request.headers.get("host")) return json({ detail: "Origem inválida." }, 403); } catch { return json({ detail: "Origem inválida." }, 403); } }
   const endpoint = (await context.params).path.join("/");
+  if (request.method === "GET" && /^procurement\/[a-zA-Z0-9-]+\/price-history$/.test(endpoint)) {
+    try {
+      const response = await upstream(`${endpoint}${request.nextUrl.search}`);
+      return json(await response.json(), response.status);
+    } catch { return json({ detail: "Não foi possível carregar o histórico. Tente atualizar a análise." }, 503); }
+  }
   if (request.method === "GET" && endpoint === "auth/config") {
     try {
       const response = await upstream("auth/config");
@@ -290,7 +300,7 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     if (!response.ok) return new NextResponse(await response.text(), { status: response.status });
     const rows: any = await response.json();
     if (!Array.isArray(rows)) return json({ detail: "Histórico de mensagens incompatível." }, 502);
-    return json(rows.map((message: any) => ({ id: String(message.id), request_id: chat[1], supplier_domain: message.supplier_domain || "", sender_type: message.sender_type, text: message.content, timestamp: message.created_at, delivery_status: message.delivery_status || "" })));
+    return json(rows.map((message: any) => ({ id: String(message.id), request_id: chat[1], supplier_domain: message.supplier_domain || "", supplier_id: message.supplier_id || null, supplier_name: message.supplier_name || null, chat_id: message.chat_id || null, sender_type: message.sender_type, text: message.content, timestamp: message.created_at, channel: message.channel || "telegram", delivery_status: message.delivery_status || "" })));
   }
   if (request.method === "POST" && chat) {
     const response = await upstream(`requests/${chat[1]}/contact-supplier`, { method: "POST", body: await request.text() });

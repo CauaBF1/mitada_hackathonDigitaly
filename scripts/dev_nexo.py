@@ -30,6 +30,11 @@ commands = [
     ('frontend', [str(NODE), 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3000'], ROOT / 'frontend', {}),
     ('telegram-gateway', [str(PYTHON), 'scripts/telegram_webhook_gateway.py'], ROOT, {'GATEWAY_HOST': '127.0.0.1', 'GATEWAY_PORT': '8081'}),
 ]
+if os.environ.get('WHATSAPP_GATEWAY_HOST'):
+    commands.append(('whatsapp-gateway', [str(PYTHON), 'scripts/whatsapp_webhook_gateway.py'], ROOT, {
+        'WHATSAPP_GATEWAY_HOST': os.environ['WHATSAPP_GATEWAY_HOST'],
+        'WHATSAPP_GATEWAY_PORT': os.environ.get('WHATSAPP_GATEWAY_PORT', '8082'),
+    }))
 logs = ROOT / '.local/logs'
 logs.mkdir(mode=0o700, parents=True, exist_ok=True)
 processes = []

@@ -15,6 +15,12 @@ index f2003ac..1f72102 100644
                  const ref = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_ref'));
                  const primaryIdentityPublicKey = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'));
                  const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub'));
+@@ -1432 +1433 @@
+-                await upsertMessage(msg, node.attrs.offline ? 'append' : 'notify');
++                await upsertMessage(msg, node.attrs.offline === '1' ? 'append' : 'notify');
+@@ -1603 +1604 @@
+-        const isOffline = !!node.attrs.offline;
++        const isOffline = node.attrs.offline === '1';
 diff --git a/node_modules/baileys/lib/Socket/socket.js b/node_modules/baileys/lib/Socket/socket.js
 index ae34a8f..944188d 100644
 --- a/node_modules/baileys/lib/Socket/socket.js

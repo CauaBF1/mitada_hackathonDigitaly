@@ -508,6 +508,9 @@ class MarketScraper:
         self.extract_credits_reserved = 0
         self.extract_urls_used = 0
         self.extract_credits_used = 0
+        self.reputation_extract_credits_reserved = 0
+        self.reputation_extract_urls_used = 0
+        self.reputation_extract_credits_used = 0
         self.on_progress = None
         self.search_candidates = {}
 
@@ -584,19 +587,28 @@ class MarketScraper:
             raise ScrapingError("Buscadores indisponíveis ou bloqueados. Nenhum resultado foi inventado. Configure um provedor de busca ou tente novamente mais tarde.")
         return urls[:40]
 
-    async def bounded_extract(self, url: str, depth: str):
+    async def bounded_extract(self, url: str, depth: str, *, reputation: bool = False):
         # Reserve before awaiting: concurrent candidates and failed/uncertain
         # requests must also count toward the task's maximum possible spend.
         reserve = 2 if depth == "advanced" else 1
         async with self.extract_budget_lock:
-            if (self.extract_urls_used >= settings.tavily_extract_max_urls_per_task
-                    or self.extract_credits_reserved + reserve > settings.tavily_extract_max_credits_per_task):
+            urls_used = self.reputation_extract_urls_used if reputation else self.extract_urls_used
+            credits_reserved = self.reputation_extract_credits_reserved if reputation else self.extract_credits_reserved
+            if (urls_used >= settings.tavily_extract_max_urls_per_task
+                    or credits_reserved + reserve > settings.tavily_extract_max_credits_per_task):
                 raise ScrapingError("Limite de extrações/créditos Tavily por tarefa atingido.")
-            self.extract_urls_used += 1
-            self.extract_credits_reserved += reserve
+            if reputation:
+                self.reputation_extract_urls_used += 1
+                self.reputation_extract_credits_reserved += reserve
+            else:
+                self.extract_urls_used += 1
+                self.extract_credits_reserved += reserve
         extraction = await tavily_extract([url], extract_depth=depth, validate_url=validate_public_url)
         if extraction is not None:
-            self.extract_credits_used += extraction.credits_used
+            if reputation:
+                self.reputation_extract_credits_used += extraction.credits_used
+            else:
+                self.extract_credits_used += extraction.credits_used
         return extraction
 
     async def extract_fallback(self, url: str, item: str) -> ProductOffer | None:
@@ -815,13 +827,8 @@ class MarketScraper:
         current = canonical_url(url)
         await validate_public_url(current)
         async with self.extract_semaphore:
-            if (
-                self.extract_urls_used >= settings.tavily_extract_max_urls_per_task
-                or self.extract_credits_used >= settings.tavily_extract_max_credits_per_task
-            ):
-                raise ReputationError("Limite de extrações Tavily por tarefa atingido na consulta ao ReclameAqui.", status="unavailable")
             try:
-                extraction = await self.bounded_extract(current, "basic")
+                extraction = await self.bounded_extract(current, "basic", reputation=True)
             except SearchProviderError as exc:
                 raise ReputationError(str(exc), status="unavailable") from None
             if extraction is None:
@@ -838,9 +845,9 @@ class MarketScraper:
                 except (ScrapingError, ValueError) as exc:
                     last_exc = exc
 
-            if self.extract_credits_reserved + 2 <= settings.tavily_extract_max_credits_per_task:
+            if self.reputation_extract_credits_reserved + 2 <= settings.tavily_extract_max_credits_per_task:
                 try:
-                    extraction_adv = await self.bounded_extract(current, "advanced")
+                    extraction_adv = await self.bounded_extract(current, "advanced", reputation=True)
                 except SearchProviderError as exc:
                     raise ReputationError(str(exc), status="unavailable") from None
                 if extraction_adv is not None:

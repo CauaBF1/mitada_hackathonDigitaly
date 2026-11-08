@@ -1,14 +1,14 @@
-# WhatsApp e fallback de voz — Nexo
+# WhatsApp e fallback Telegram — Nexo
 
-Os arquivos foram editados diretamente. O negócio continua em `better-sqlite3`; PostgreSQL e Redis são exclusivos da Evolution. Telegram e `/requests` mantêm seus contratos. Mensagens dos dois canais aparecem em `GET /requests/:id/messages`, na mesma tabela `conversation_messages`. A migração adiciona `channel` (Telegram por padrão) e `external_message_id`, sem apagar dados.
+Os arquivos foram editados diretamente. O negócio continua em `better-sqlite3`; PostgreSQL e Redis são exclusivos da Evolution. Telegram e `/requests` mantêm seus contratos. Mensagens aparecem em `GET /requests/:id/messages` com `channel`, `supplier_id`, `supplier_name` e `chat_id`. Requests incluem `whatsapp_pending` por fornecedor; cotações têm `channel` e identidade própria. A migração adiciona `channel` (Telegram por padrão) e `external_message_id`, sem apagar dados.
 
 ## Subir e conectar
 
 O Compose constrói `localhost/nexo-evolution:2.3.7-pairing-1`, baseada em `docker.io/evoapicloud/evolution-api:v2.3.7`, com a correção de pareamento descrita em [infrastructure/evolution/README.md](../infrastructure/evolution/README.md). A imagem antiga `atendai/evolution-api:v2.1.2` retornou acesso negado durante a instalação; a versão v2.3.7 foi confirmada nas releases oficiais. Os nomes completos das imagens também evitam a resolução interativa de registros no Podman.
 
-1. Copie `.env.example` para `.env` **somente se ainda não existir**. Em um `.env` existente, acrescente as novas variáveis. Preencha `WHATSAPP_API_KEY`, `WHATSAPP_WEBHOOK_SECRET`, `VOICE_WEBHOOK_SECRET`, `INTERNAL_API_TOKEN` com valores distintos, além da chave Gemini. Para os comandos abaixo, exporte essas mesmas variáveis no terminal. `WHATSAPP_INSTANCE_NAME=nexo`.
+1. Copie `.env.example` para `.env` **somente se ainda não existir**. Em um `.env` existente, acrescente as novas variáveis. Preencha `WHATSAPP_API_KEY`, `WHATSAPP_WEBHOOK_SECRET`, `VOICE_WEBHOOK_SECRET`, `INTERNAL_API_TOKEN` com valores distintos, além da chave Gemini. Configure `WHATSAPP_SUPPLIER_NUMBER` (ou `WHATSAPP_TEST_SUPPLIER_NUMBER`) apenas com um contato autorizado. Para o runtime local, `WHATSAPP_API_URL=http://127.0.0.1:8080`; dentro do Compose, a API usa `http://evolution:8080`. `WHATSAPP_INSTANCE_NAME=nexo`.
 2. Execute `podman compose up -d --build` (ou `docker compose up -d --build`). A API não depende da disponibilidade da Evolution para iniciar ou atender Telegram.
-3. Crie a instância e configure o webhook **por instância**, com `byEvents: false`. O destino `http://api:4000` é acessível dentro da rede Compose; não precisa de túnel para a Evolution local.
+3. Crie a instância e configure o webhook **por instância**, com `byEvents: false`. O destino recomendado é `http://172.17.0.1:8082/webhook/whatsapp` quando a Evolution está em Docker e a API Nest roda no host. Configure `WHATSAPP_GATEWAY_HOST=172.17.0.1` e inicie `scripts/dev_nexo.py`; o relay aceita só POST neste caminho, exige `WHATSAPP_WEBHOOK_SECRET`, limita corpo a 64 KiB e encaminha a `127.0.0.1:4000`. A API Nest não precisa ser exposta na rede do Docker.
 
 ```bash
 curl -fsS http://localhost:8080/instance/create \
@@ -35,7 +35,9 @@ Escaneie o QR retornado (ou use o visualizador local) com o WhatsApp do número 
 
 ## Teste por curl
 
-Use um número real sob seu controle no teste de envio: o fallback e as respostas automáticas enviam mensagens de verdade. Copie o `id` retornado pela criação para `REQUEST_ID`. Os valores de voz abaixo são os segredos definidos no `.env`.
+Para usar o contato padrão em novas solicitações, configure explicitamente `WHATSAPP_SUPPLIER_NUMBER`. O número é cadastrado como `Fornecedor configurado` com ID estável; nenhuma relação é inferida pelo nome. `WHATSAPP_TEST_SUPPLIER_NUMBER` continua disponível para testes locais. Ao aceitar a pesquisa, a API envia a abertura por WhatsApp. Uma resposta reconhecida cancela o fallback; sem resposta, a API usa o chat Telegram somente se houver exatamente um chat autorizado em `TELEGRAM_ALLOWED_CHAT_IDS`, após `WHATSAPP_TELEGRAM_FALLBACK_SECONDS` (30 segundos por padrão). A deadline fica no SQLite e sobrevive a reinícios. Envio incerto não é repetido; ausência de uma configuração Evolution é registrada como atenção e não é tratada como envio. A API não inicia chamadas de voz nesse fluxo.
+
+Use apenas um número sob seu controle para testar envio; o teste HTTP automatizado usa stubs e não envia mensagens reais. Copie o `id` retornado pela criação para `REQUEST_ID`. Os valores de voz abaixo são os segredos definidos no `.env`.
 
 ```bash
 curl -fsS http://localhost:4000/requests \
@@ -73,7 +75,7 @@ Repita o mesmo `demo-in-2`: retorna `duplicate` e não cria mensagem/proposta/en
 
 Para testar o filtro do próprio bot, altere o payload para `fromMe: true`: retorna `ignored: from-me`. Sem o header secreto, retorna HTTP 401. Grupos, mídias sem texto, remetentes desconhecidos e outras instâncias são ignorados.
 
-Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. Nesse caso, a Evolution envia `message.extendedTextMessage.contextInfo.stanzaId` com o ID original, além de `extendedTextMessage.text`. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos; JIDs `@lid` sem telefone e grupos não são usados como número de fornecedor.
+Se o mesmo número estiver vinculado a várias solicitações abertas, o fornecedor precisa responder citando uma mensagem enviada da solicitação correta. A referência pode vir em `data.message.extendedTextMessage.contextInfo.stanzaId` ou em `data.contextInfo.stanzaId`, inclusive quando o texto está em `data.message.conversation`. Ambos os formatos são aceitos. Sem esse contexto, o webhook retorna `ambiguous-request` e não atribui a proposta à solicitação errada. JIDs de telefone `@s.whatsapp.net` são aceitos. Para conversas `@lid`, o telefone é obtido de `key.remoteJidAlt`, quando ele contém um JID válido `@s.whatsapp.net`; JIDs `@lid` sem esse telefone e grupos continuam sendo ignorados.
 
 ## Conectar o encerramento de voz real
 
@@ -98,15 +100,18 @@ O novo endpoint aceita o evento normalizado mostrado acima ou este envelope Vapi
 }
 ```
 
-Inclua `request_id` e `supplier_id` ao iniciar a chamada. O contato deve estar cadastrado antes. O adaptador deve marcar `quote_completed: true` quando houver cotação concluída; uma proposta parcial não deve ser marcada como concluída. Status normalizados aceitos: `busy`, `no-answer`, `failed`, `hangup`, `completed`, `ended`. Também são reconhecidos `customer-busy`, `customer-did-not-answer`, `call-start-error`, `customer-ended-call`, `assistant-ended-call`, `silence-timed-out` e `max-duration-reached`. Outros estados não disparam contato. Não há discador de voz novo nesta alteração; o evento vem do provedor/adaptador já usado pela aplicação.
+A API preserva o endpoint e callbacks de voz para integrações existentes. O fluxo automático de novos contatos não inicia chamadas de voz. Para callbacks já em andamento, inclua `request_id` e `supplier_id`; o contato deve estar cadastrado antes. O adaptador deve marcar `quote_completed: true` quando houver cotação concluída; uma proposta parcial não deve ser marcada como concluída. Status normalizados aceitos: `busy`, `no-answer`, `failed`, `hangup`, `completed`, `ended`. Também são reconhecidos `customer-busy`, `customer-did-not-answer`, `call-start-error`, `customer-ended-call`, `assistant-ended-call`, `silence-timed-out` e `max-duration-reached`. Outros estados não disparam contato. Chamadas persistidas em `whatsapp_contact_flow` continuam sendo consultadas sem iniciar uma nova ligação. Um estado de início incerto não gera nova chamada nem contato automático.
 
 ## Persistência, falhas e testes automatizados
+
+API, agentes e frontend usam `restart: unless-stopped`, assim como a infraestrutura da Evolution. Isso permite ao runtime reiniciar containers após falhas; containers parados explicitamente continuam parados. Se a aplicação estiver indisponível, confira `podman compose ps -a` e inicie os serviços com `podman compose up -d`. Antes de gerar outro QR, consulte `/instance/connectionState/{instance}`: uma sessão persistida pode reconectar automaticamente, sem novo pareamento.
 
 - `whatsapp_contacts`: vínculo imutável entre número, fornecedor e solicitação.
 - `whatsapp_delivery`: chave de idempotência, conteúdo, ID retornado e estado do envio.
 - `whatsapp_updates`: inbox persistente e deduplicada por instância/número/ID; até três tentativas de interpretação, retomadas após reinício, em ordem por conversa.
 - `whatsapp_quote_state`: dados parciais por fornecedor, inclusive informações recebidas antes do preço.
 - `whatsapp_voice_calls`: identidade da chamada e conclusão de cotação preservada entre eventos.
+- `whatsapp_contact_flow`: canal inicial e deadline durável do fallback WhatsApp → Telegram.
 
 Cotação e resposta preparada são gravadas na mesma transação SQLite. A rede nunca é chamada dentro de uma transação. O agente recebe apenas o histórico do fornecedor e canal em questão. `parsed.pending` é conciliado com os campos acumulados para não repetir perguntas já respondidas. Uma proposta sem preço continua no estado parcial; com preço válido, `addQuote` atualiza o Kanban para `comparação`, mantendo a regra existente de elegibilidade para decisão.
 
@@ -116,6 +121,8 @@ Envios `failed` (rejeição HTTP 4xx) ou `uncertain` (timeout, desconexão, HTTP
 cd api
 npm ci
 npm run test:whatsapp
+cd ..
+python3 scripts/test_whatsapp_webhook_gateway.py
 # Regressão existente de Telegram e requests (requer python3 para o gateway):
 node scripts/smoke.mjs
 ```

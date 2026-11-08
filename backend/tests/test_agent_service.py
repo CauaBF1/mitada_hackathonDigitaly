@@ -303,33 +303,38 @@ def test_reputation_refresh_keeps_ra_403_unverified_and_caches_search_indication
     assert second["reputation_indications"] == first["reputation_indications"]
 
 
-def test_reputation_refresh_enforces_total_budget_and_three_domain_limit_without_sleep(monkeypatch):
+def test_reputation_refresh_checks_more_than_three_domains_with_configured_budget(monkeypatch):
     from app import scraper_tools, search_provider
-    clock = [100.0]
-    waits = []
-    async def simulated_wait(awaitable, timeout):
-        waits.append(timeout)
-        if hasattr(awaitable, "close"):
-            awaitable.close()
-        clock[0] += timeout
-        raise TimeoutError
-    async def unused_search(query):
-        raise AssertionError("Busca não deveria executar fora dos awaits limitados")
-    monkeypatch.setattr(agent_service.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(agent_service.asyncio, "wait_for", simulated_wait)
-    monkeypatch.setattr(search_provider, "tavily_results", unused_search)
+    calls = {"official": [], "search": []}
+    class Reputation:
+        def __init__(self, domain): self.domain = domain
+        def model_dump(self, mode="json"):
+            return {"supplier_domain": self.domain, "verified": False, "approved": False, "score": None,
+                "checked_at": "2026-11-08T00:00:00+00:00", "status": "unrated", "reason": "Sem índice"}
+    class Scraper:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def reputation(self, offer):
+            calls["official"].append(offer.supplier_domain)
+            return Reputation(offer.supplier_domain)
+    async def fake_wait(awaitable, timeout):
+        return await awaitable
+    async def fake_search(query):
+        calls["search"].append(query)
+        return []
+    monkeypatch.setattr(scraper_tools, "MarketScraper", Scraper)
+    monkeypatch.setattr(search_provider, "tavily_results", fake_search)
+    monkeypatch.setattr(agent_service.asyncio, "wait_for", fake_wait)
+    monkeypatch.setattr(agent_service.settings, "reputation_refresh_max_domains", 10)
+    monkeypatch.setattr(agent_service.settings, "reputation_refresh_total_budget_seconds", 180)
+    monkeypatch.setattr(agent_service.settings, "reputation_refresh_domain_timeout_seconds", 30)
     monkeypatch.setattr(agent_service, "require_internal_token", lambda token: None)
     agent_service._reputation_cache.clear()
     offers = [{"source_url": f"https://shop{i}.com.br/item"} for i in range(1, 6)]
     result = asyncio.run(agent_service.reputation_refresh(agent_service.ReputationRefreshRequest(offers=offers), None))
-    statuses = {row["supplier_domain"]: row["status"] for row in result["reputations"]}
-    assert clock[0] - 100.0 == agent_service.REPUTATION_REFRESH_TOTAL_BUDGET_SECONDS
-    assert waits == [8, 5, 8, 4]
-    assert statuses["shop1.com.br"] == "timeout"
-    assert statuses["shop2.com.br"] == "timeout"
-    assert statuses["shop3.com.br"] == "skipped_timeout"
-    assert statuses["shop4.com.br"] == statuses["shop5.com.br"] == "skipped_limit"
-    assert all(row["verified"] is False for row in result["reputations"])
+    assert len(result["reputations"]) == 5
+    assert all(row["status"] == "unrated" for row in result["reputations"])
+    assert len(calls["official"]) == len(calls["search"]) == 5
 
 
 class DiscoveryMock:

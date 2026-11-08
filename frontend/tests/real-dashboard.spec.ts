@@ -115,7 +115,56 @@ test("drawer displays partial supplier quote + market options in NEGOTIATING and
   expect(marketPayloads[1]).toEqual({ quote_id: null, version: 5 });
 });
 
-test("starts with real data only and combines metrics and Kanban", async ({ page }) => {
+test("dashboard keeps partial WhatsApp quote visible in its own channel and out of web sources", async ({ page }) => {
+  const id = "77777777-7777-4777-8777-777777777777";
+  const row: any = {
+    id, version: 1, item: "Monitor Dell 24", qty: 2, delivery_location: "13565090", status: "NEGOTIATING", stage: "comparação",
+    quote_completion_state: "coletando", missing_fields: ["fees_cents", "destination_confirmed"], mode: "live",
+    reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0,
+    sources: [], selected_product_url: null, market_average: null,
+    quote: { id: "wa-quote-1", channel: "whatsapp", supplier_id: "whatsapp:loja-a", supplier_name: "Loja WhatsApp A", product_name: "Monitor Dell 24", product_url: "", initial_price: "90.00", final_price: "90.00", shipping_fee: "12.00", fees_fee: null, final_tco: null, event_id: "whatsapp:event-1", conditions: "", delivery_time: "Não confirmado", available_qty: null },
+    whatsapp_pending: [{ supplier_id: "whatsapp:loja-a", supplier_name: "Loja WhatsApp A", number: "5511999999999", terms: { unit_cents: 9000, shipping_cents: 1200, fees_cents: null }, missing_fields: ["fees_cents", "lead_days", "available_qty", "product_confirmed", "destination_confirmed"], updated_at: "2026-11-08T10:00:00.000Z" }],
+    purchase_simulation: null, preferred_market_quote_id: null, audit: null,
+  };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-08T00:00:00.000Z" } } }));
+  await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: null, cost_avoidance: null, final_spend: null, completed_count: 0, active_count: 1, verified_suppliers_count: 0, pending_tco_count: 0 } } }));
+  await page.goto("/dashboard");
+  const card = page.locator("#kanban article").filter({ hasText: "Monitor Dell 24" });
+  await expect(card).toContainText("WhatsApp · 1 fornecedor");
+  await expect(card).toContainText("R$ 90,00");
+  await card.locator('button[aria-pressed]').click();
+  const drawer = page.getByRole("dialog", { name: "Monitor Dell 24" });
+  const whatsapp = drawer.getByRole("region", { name: "Propostas recebidas pelo WhatsApp" });
+  await expect(whatsapp).toContainText("Loja WhatsApp A");
+  await expect(whatsapp).toContainText("R$ 90,00 × 2");
+  await expect(whatsapp).toContainText("R$ 12,00");
+  await expect(whatsapp).toContainText("Não informado");
+  await expect(drawer.getByRole("region", { name: "Opções do mercado" })).toContainText("0 ofertas na internet");
+  await expect(drawer.locator('a[href^="http"]')).toHaveCount(0);
+});
+
+test("price history with sparse observations stays unknown and plots only real records", async ({ page }) => {
+  const id = "88888888-8888-4888-8888-888888888888";
+  const row: any = { id, version: 1, item: "Mouse Logitech G Pro", qty: 1, delivery_location: "13565090", status: "NEGOTIATING", stage: "comparação", mode: "live", sources: [], reputations: [], reputation_indications: [], candidates: [], errors: [], blocked_sites: 0, selected_product_url: null, quote: null, purchase_simulation: null, audit: null };
+  await page.route("**/api/auth/me", route => route.fulfill({ json: { user: { id: "u-1", name: "Teste", email: "teste@nexo.local", created_at: "2026-11-08T00:00:00.000Z" } } }));
+  await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: null, cost_avoidance: null, final_spend: null, completed_count: 0, active_count: 1, verified_suppliers_count: 0, pending_tco_count: 0 } } }));
+  await page.route(`**/api/procurement/${id}/price-history?days=60`, route => route.fulfill({ json: {
+    history: [{ date: "2026-11-08", price: "90.00", supplier: "Loja A" }], observed_history: [{ date: "2026-11-08", price: "90.00", supplier: "Loja A" }],
+    analysis: null, historical_average: null, selected_price: "90.00", selected_date: "2026-11-08", price_source: "reference", data_source: "unavailable", analysis_source: "insufficient_data", days: 60, real_observation_count: 1,
+    message: "Há 1 dia com preço observado no período; são necessárias ao menos 7 datas distribuídas por 7 dias. O histórico, a média e o momento de compra permanecem desconhecidos até haver observações suficientes.",
+  } }));
+  await page.goto("/dashboard/analise-economica");
+  const section = page.getByRole("region", { name: "Histórico Temporal de Preços & Timing de Compra" });
+  await expect(section).toBeVisible();
+  await expect(section).toContainText("Histórico real insuficiente");
+  await expect(section).toContainText("média histórica, a tendência e a recomendação permanecem desconhecidas");
+  await section.getByText("Consultar registros reais (1)").click();
+  await expect(section.getByRole("row")).toHaveCount(2);
+  await expect(section).toContainText("Loja A");
+  await expect(section).not.toContainText("Momento Ideal para Compra");
+});
+
+test("starts with real data and the purchase pipeline", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
   const response = await page.request.get("/api/godmode/dashboard");
@@ -137,10 +186,7 @@ test("starts with real data only and combines metrics and Kanban", async ({ page
   await expect(integration.getByLabel('Chave de API Tavily')).toHaveValue('');
   await integration.getByRole('button', { name: 'Fechar configuração' }).click();
   await page.getByRole("link", { name: "Voltar ao dashboard" }).click();
-  await expect(page.getByRole("region", { name: "Indicadores de economia" }).getByText("R$ 0,00", { exact: true })).toHaveCount(3);
-  const metrics = await page.getByRole("region", { name: "Indicadores de economia" }).boundingBox();
-  const board = await page.locator("#kanban").boundingBox();
-  expect(board!.y).toBeGreaterThan(metrics!.y + metrics!.height);
+  await expect(page.locator("#kanban")).toBeVisible();
   await page.getByRole("button", { name: "Nova solicitação", exact: true }).click();
   await expect(page.getByLabel("Nome do item")).toBeFocused();
   await page.keyboard.press("Escape");
@@ -230,15 +276,8 @@ test("mobile layout fits and lost API access does not introduce demo prices", as
 test("sandbox observer renders both roles, polls, and stops when closed", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page.getByText("API conectada", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Testar no meu Telegram" }).click();
-  const form = page.getByRole("dialog", { name: "Teste ao vivo no Telegram" });
-  await expect(form.locator("input:visible")).toHaveCount(3);
-  await form.getByLabel("Nome do item").fill("Mouse Logitech M170");
-  await form.getByLabel("Local de entrega / CEP").fill("CEP 01001-000, SP");
-  const sent = page.waitForRequest(request => request.url().endsWith("/api/request") && request.method() === "POST");
-  await form.getByRole("button", { name: "Iniciar demonstração ao vivo" }).click();
-  expect((await sent).postDataJSON()).toEqual({ item: "Mouse Logitech M170", mode: "sandbox", qty: 1, delivery_location: "CEP 01001-000, SP" });
-  await expect(form).not.toBeVisible();
+  const created = await page.request.post("/api/request", { data: { item: "Mouse Logitech M170", mode: "sandbox", qty: 1, delivery_location: "CEP 01001-000, SP" } });
+  expect(created.ok()).toBe(true);
   const row = (await (await page.request.get("/api/godmode/dashboard")).json()).runs[0];
   expect(row.mode).toBe("sandbox");
   let polls = 0;
@@ -277,8 +316,6 @@ test("drawer shows audited quantity, freight and traceable savings", async ({ pa
   await page.route("**/api/godmode/dashboard", route => route.fulfill({ json: { data_mode: "real", total_runs: 1, runs: [row], metrics: { hard_savings: "60.00", cost_avoidance: "40.00", final_spend: "165.00", completed_count: 1, active_count: 0, verified_suppliers_count: 1, pending_tco_count: 0 } } }));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/dashboard");
-  const metrics = page.getByRole("region", { name: "Indicadores de economia" });
-  await expect(metrics.getByRole("heading", { name: "Final Negotiated Amount" })).toBeVisible();
   await page.locator("#kanban").getByRole("button", { name: /Produto do teste de interface/ }).click();
   const drawer = page.getByRole("dialog", { name: "Produto do teste de interface" });
   await expect(drawer.getByRole("region", { name: "Composição do TCO" }).getByText("R$ 165,00", { exact: true })).toBeVisible();

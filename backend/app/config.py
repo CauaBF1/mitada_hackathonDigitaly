@@ -70,12 +70,17 @@ class Settings(BaseSettings):
     max_negotiation_rounds: int = Field(default=3, ge=1, le=5)
     llm_timeout_seconds: float = Field(default=20.0, ge=3.0, le=90.0)
     tavily_api_key: SecretStr | None = None
-    tavily_extract_timeout_seconds: float = Field(default=18.0, ge=2.0, le=60.0)
-    tavily_extract_max_urls_per_task: int = Field(default=5, ge=1, le=20)
-    tavily_extract_max_credits_per_task: int = Field(default=4, ge=1, le=20)
+    tavily_extract_timeout_seconds: float = Field(default=45.0, ge=2.0, le=60.0)
+    tavily_extract_max_urls_per_task: int = Field(default=10, ge=1, le=20)
+    tavily_extract_max_credits_per_task: int = Field(default=10, ge=1, le=20)
     tavily_extract_max_retries: int = Field(default=2, ge=1, le=3)
     tavily_extract_concurrency: int = Field(default=2, ge=1, le=5)
     search_credentials_path: Path = Path('.local/search_credentials.json')
+    reputation_refresh_total_budget_seconds: float = Field(default=30.0, ge=15.0, le=35.0)
+    reputation_refresh_max_domains: int = Field(default=10, ge=1, le=30)
+    reputation_refresh_domain_timeout_seconds: float = Field(default=20.0, ge=5.0, le=25.0)
+    reputation_refresh_search_timeout_seconds: float = Field(default=8.0, ge=2.0, le=15.0)
+    reputation_refresh_concurrency: int = Field(default=10, ge=1, le=10)
 
     # Vapi — agente de voz duplex
     vapi_api_key: SecretStr | None = None

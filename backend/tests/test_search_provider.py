@@ -82,21 +82,69 @@ def test_cross_origin_cannot_change_configuration(client, credentials):
     assert not credentials.exists()
 
 
-@pytest.mark.parametrize('plan,paygo,used', [('Project', 0, 0), ('Researcher', 10, 0), ('Researcher', 0, 1000)])
-def test_paid_plans_paygo_and_exhausted_credits_never_trigger_search(credentials, monkeypatch, plan, paygo, used):
+@pytest.mark.parametrize('plan,paygo,used,allowed', [
+    ('Project', 0, 0, True),
+    ('Researcher', 10, 0, True),
+    ('Researcher', 0, 1000, False),
+])
+def test_search_obeys_provider_balance_without_free_plan_gate(credentials, monkeypatch, plan, paygo, used, allowed):
     provider.save_key(SecretStr('tvly-budget-test-credential'))
     calls = []
     def handler(request):
         calls.append(request.method)
-        return httpx.Response(200, json=usage(used=used, plan=plan, paygo=paygo))
+        if request.method == 'GET':
+            return httpx.Response(200, json=usage(used=used, plan=plan, paygo=paygo))
+        return httpx.Response(200, json={'results': [{'url': 'https://vendor.example/product'}]})
     transport(monkeypatch, handler)
     async def check():
         async with httpx.AsyncClient() as client:
             await provider.get_usage(client, SecretStr('tvly-budget-test-credential'))
-        with pytest.raises(provider.SearchProviderError):
+        if allowed:
             await provider.tavily_search('Product query')
+        else:
+            with pytest.raises(provider.SearchProviderError) as exc:
+                await provider.tavily_search('Product query')
+            assert exc.value.code == 'insufficient_credits'
     asyncio.run(check())
-    assert calls == ['GET']
+    assert calls == (['GET', 'POST'] if allowed else ['GET'])
+
+
+def test_usage_remaining_uses_reported_limits_without_a_1000_credit_cap():
+    body = usage(used=1200)
+    body['key']['limit'] = 5000
+    body['account']['plan_usage'] = 1200
+    body['account']['plan_limit'] = 5000
+    assert provider.Usage.model_validate(body).remaining == 3800
+
+
+def test_usage_remaining_adds_actual_paygo_balance():
+    body = usage(used=990, paygo=500)
+    body['key']['limit'] = 5000
+    body['account']['plan_limit'] = 1000
+    body['account']['paygo_usage'] = 20
+    assert provider.Usage.model_validate(body).remaining == 490
+
+
+def test_paid_plan_with_unknown_paygo_limit_preserves_unknown_provider_quota(credentials, monkeypatch):
+    provider.save_key(SecretStr('tvly-unknown-quota-test'))
+    body = usage(used=1000, plan='Project')
+    body['account']['paygo_limit'] = None
+    parsed = provider.Usage.model_validate(body)
+    assert parsed.remaining is None
+    assert provider.public_status(parsed).credits_remaining is None
+    assert provider.public_status(parsed).active_provider == 'tavily'
+    identity = provider.credential_id(SecretStr('tvly-unknown-quota-test'))
+    provider.usage_cache[identity] = (parsed, __import__('time').monotonic())
+    calls = []
+    transport(monkeypatch, lambda request: calls.append(request.url.path) or httpx.Response(200, json={'results': []}))
+    assert asyncio.run(provider.tavily_search('Let Tavily enforce its unknown quota')) == []
+    assert calls == ['/search']
+
+
+def test_paid_plan_with_unknown_paygo_limit_reports_known_plan_balance():
+    body = usage(used=100, plan='Project')
+    body['account']['paygo_limit'] = None
+    assert provider.Usage.model_validate(body).remaining == 900
 
 
 def test_search_uses_basic_depth_no_generated_answer_and_real_response_urls(credentials, monkeypatch):

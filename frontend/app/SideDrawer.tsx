@@ -77,6 +77,14 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
       <div className="flex-1 space-y-5 overflow-y-auto p-6">
         <RequestActions key={row.id} id={row.id} product={row.item} disabled={decisionBusy !== null} onDeleted={deleted} onRepeated={repeated}/>
         {row.mode === "sandbox" && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-800">Teste no seu Telegram · resultados fora dos indicadores reais.</p>}
+        {!!row.whatsapp_pending?.length && <section aria-label="Propostas recebidas pelo WhatsApp" className="rounded-2xl border border-green-200 bg-green-50/50 p-4"><h3 className="text-sm font-semibold text-green-900">WhatsApp · propostas em andamento</h3><p className="mt-1 text-[11px] leading-relaxed text-green-800">Cada contato permanece separado do Telegram e dos demais fornecedores. Termos ausentes continuam sem valor.</p><div className="mt-3 space-y-3">{row.whatsapp_pending.map(contact => {
+          const terms = contact.terms || {};
+          const cents = (key: string) => Number.isSafeInteger(terms[key]) ? Number(terms[key]) as number : null;
+          const unit = cents("unit_cents"), shipping = cents("shipping_cents"), fees = cents("fees_cents");
+          const subtotal = unit !== null && Number.isSafeInteger(unit * row.qty) ? unit * row.qty : null;
+          const total = subtotal !== null && shipping !== null && fees !== null && Number.isSafeInteger(subtotal + shipping + fees) ? subtotal + shipping + fees : null;
+          return <article key={contact.supplier_id} className="rounded-xl border border-green-100 bg-white p-3"><div className="flex flex-wrap justify-between gap-2"><strong className="text-xs text-slate-800">{contact.supplier_name || "Fornecedor WhatsApp"}</strong><span className="text-[10px] text-slate-400">WhatsApp · {contact.supplier_id}</span></div><dl className="mt-3 grid grid-cols-2 gap-3 text-[11px]"><div><dt className="text-slate-400">Unitário × {row.qty}</dt><dd className="mt-1 font-medium">{unit === null ? "Não informado" : `${brl((unit / 100).toFixed(2))} × ${row.qty}`}</dd></div><div><dt className="text-slate-400">Frete</dt><dd className="mt-1 font-medium">{shipping === null ? "Não informado" : brl((shipping / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">Taxas</dt><dd className="mt-1 font-medium">{fees === null ? "Não informado" : brl((fees / 100).toFixed(2))}</dd></div><div><dt className="text-slate-400">TCO calculável</dt><dd className="mt-1 font-semibold">{total === null ? "Pendente" : brl((total / 100).toFixed(2))}</dd></div></dl>{contact.missing_fields.length > 0 && <p className="mt-3 text-[10px] text-amber-800">Pendente: {contact.missing_fields.map(field => MISSING_LABELS[field] || field).join(", ")}</p>}</article>;
+        })}</div></section>}
         {row.notice && <p role="status" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900">{row.notice}</p>}
         <section aria-label="Composição do TCO" className="rounded-2xl bg-[#111827] p-5 text-white shadow-lg">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -89,7 +97,7 @@ export default function SideDrawer({ row, close, openChat, decided, deleted, rep
             </span>
           </div>
           <dl className="mt-5 space-y-3 text-sm">
-            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor (Telegram)</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
+            <div className="flex justify-between gap-4"><dt className="text-slate-300">Fornecedor ({row.quote?.channel === "whatsapp" ? "WhatsApp" : "Telegram"})</dt><dd className="text-right text-xs font-medium text-slate-100">{row.quote?.supplier_name || "Aguardando retorno"}</dd></div>
             <div className="flex justify-between gap-4"><dt className="text-slate-300">Preço unitário final × {row.qty}</dt><dd className="numeric">{audit ? `${brl(audit.final_price)} × ${row.qty}` : row.quote?.final_price ? `${brl(row.quote.final_price)} × ${row.qty}` : "A confirmar"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-300">Subtotal de produtos</dt><dd className="numeric">{brl(audit?.product_subtotal ?? (row.quote?.final_price ? (Number(row.quote.final_price) * row.qty).toFixed(2) : null))}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-300">Frete</dt><dd className="numeric">{audit ? brl(audit.shipping_fee) : row.quote?.shipping_fee == null ? "Não confirmado" : brl(row.quote.shipping_fee)}</dd></div>

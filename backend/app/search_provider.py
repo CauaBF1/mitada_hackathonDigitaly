@@ -59,9 +59,15 @@ class Usage(BaseModel):
         )
 
     @property
-    def remaining(self) -> int:
-        limit = min(1000, self.account.plan_limit)
-        account = max(0, limit - self.account.plan_usage)
+    def remaining(self) -> int | None:
+        plan = max(0, self.account.plan_limit - self.account.plan_usage)
+        if self.account.paygo_limit is None:
+            if self.account.current_plan.strip().lower() not in {'free', 'researcher'}:
+                return plan if plan > 0 else None
+            paygo = 0
+        else:
+            paygo = max(0, self.account.paygo_limit - self.account.paygo_usage)
+        account = plan + paygo
         key = max(0, self.key.limit - self.key.usage) if self.key.limit is not None else account
         return min(account, key)
 
@@ -77,7 +83,7 @@ class SearchConnection(BaseModel):
     active_provider: str
     plan: str | None = None
     credits_remaining: int | None = None
-    monthly_free_credits: int = 1000
+    monthly_free_credits: int | None = None
     free_plan: bool | None = None
     capabilities: list[str] = Field(default_factory=lambda: ['search', 'extract'])
     message: str
@@ -161,7 +167,14 @@ def _usage_with_reservations(usage: Usage, reservation: int) -> Usage:
     key_data = usage.key.model_dump()
     account_data = usage.account.model_dump()
     key_data['usage'] += reservation
-    account_data['plan_usage'] += reservation
+    plan_remaining = max(0, usage.account.plan_limit - usage.account.plan_usage)
+    from_plan = min(reservation, plan_remaining)
+    account_data['plan_usage'] += from_plan
+    paygo_reserve = reservation - from_plan
+    if paygo_reserve and usage.account.paygo_limit is not None:
+        account_data['paygo_usage'] += paygo_reserve
+    elif paygo_reserve:
+        account_data['plan_usage'] += paygo_reserve
     return Usage(key=key_data, account=account_data)
 
 
@@ -234,12 +247,14 @@ async def get_usage(client: httpx.AsyncClient, key: SecretStr, *, force: bool = 
 
 
 def public_status(usage: Usage, checked_at: str | None = None) -> SearchConnection:
-    enabled = usage.free_plan and usage.remaining > 0
+    enabled = usage.remaining is None or usage.remaining > 0
+    unknown_balance = usage.remaining is None
     return SearchConnection(
         connection_status='verified' if enabled else 'paused', last_verified_at=checked_at or datetime.now(timezone.utc).isoformat(),
         configured=True, verified=True, active_provider='tavily' if enabled else 'paused',
         plan=usage.account.current_plan, credits_remaining=usage.remaining, free_plan=usage.free_plan,
-        message='Credencial validada. A coleta de preços depende dos sites consultados.' if enabled else 'Busca pausada: use o plano gratuito sem pay-as-you-go e com créditos disponíveis.',
+        error_code='quota_unknown' if unknown_balance else None,
+        message='Credencial validada; a Tavily aplicará o limite disponível a cada consulta.' if unknown_balance else 'Credencial validada. A coleta de preços depende dos sites consultados.' if enabled else 'Busca pausada: a Tavily informou que não há créditos disponíveis.',
     )
 
 
@@ -259,16 +274,14 @@ async def tavily_results(query: str) -> list[dict[str, str]] | None:
         budget_deadline = now + SEARCH_BUDGET_SECONDS
         async with httpx.AsyncClient(timeout=min(10.0, settings.scrape_timeout_seconds), follow_redirects=False) as client:
             usage = cached_usage(key)
-            if usage is not None and not usage.free_plan:
-                raise SearchProviderError('A integração permite apenas o plano gratuito Researcher/Free, com pay-as-you-go desativado.', 'invalid_plan')
-            if usage is not None and usage.remaining < 1:
-                raise SearchProviderError('Créditos gratuitos esgotados. A pesquisa foi pausada sem ativar cobrança.', 'insufficient_credits')
+            if usage is not None and usage.remaining is not None and usage.remaining < 1:
+                raise SearchProviderError('Créditos Tavily esgotados. A pesquisa foi pausada sem alterar o plano ou ativar cobrança.', 'insufficient_credits')
             for attempt in range(2):
                 if asyncio.get_running_loop().time() >= budget_deadline:
                     raise SearchProviderError('A consulta à Tavily excedeu o orçamento total de 30 segundos.', 'timeout')
                 current_usage = cached_usage(key)
-                if current_usage is not None and current_usage.remaining < 1:
-                    raise SearchProviderError('Créditos gratuitos esgotados ou reservados nesta tarefa. Nenhum plano pago foi ativado.', 'insufficient_credits')
+                if current_usage is not None and current_usage.remaining is not None and current_usage.remaining < 1:
+                    raise SearchProviderError('Créditos Tavily esgotados ou reservados nesta tarefa. Nenhum plano ou cobrança foi alterado.', 'insufficient_credits')
                 _reserve_credits(key, 1)
                 try:
                     async with asyncio.timeout(max(0.1, budget_deadline - asyncio.get_running_loop().time())):
@@ -357,10 +370,8 @@ async def tavily_extract(
         timeout = max(2.0, min(60.0, float(settings.tavily_extract_timeout_seconds)))
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             usage = cached_usage(key)
-            if usage is not None and not usage.free_plan:
-                raise SearchProviderError('A integração permite apenas o plano gratuito Researcher/Free, com pay-as-you-go desativado.', 'invalid_plan')
-            if usage is not None and usage.remaining < required_credits:
-                raise SearchProviderError('Créditos gratuitos esgotados ou insuficientes para extração. Nenhum plano pago foi ativado.', 'insufficient_credits')
+            if usage is not None and usage.remaining is not None and usage.remaining < required_credits:
+                raise SearchProviderError('Créditos Tavily insuficientes para esta extração. Nenhum plano ou cobrança foi alterado.', 'insufficient_credits')
 
             _reserve_credits(key, required_credits)
 
@@ -469,8 +480,6 @@ async def connect(payload: ConnectSearch, request: Request, x_nexo_settings: str
     try:
         async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
             usage = await get_usage(client, payload.api_key, force=True)
-        if not usage.free_plan:
-            raise HTTPException(422, 'Use uma chave do plano gratuito Researcher/Free com pay-as-you-go desativado.')
         await run_in_threadpool(save_key, payload.api_key)
         return public_status(usage, verified_usage[credential_id(payload.api_key)][1])
     except SearchProviderError as exc:

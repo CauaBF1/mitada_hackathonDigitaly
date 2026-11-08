@@ -6,7 +6,7 @@ WORKDIR /opt/nexo-baileys
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY patches ./patches
-COPY verify-pairing.mjs ./
-RUN ./node_modules/.bin/patch-package --error-on-fail && node verify-pairing.mjs
+COPY verify-pairing.mjs verify-receiving.mjs ./
+RUN ./node_modules/.bin/patch-package --error-on-fail && node verify-pairing.mjs && node verify-receiving.mjs
 RUN rm -rf /evolution/node_modules/baileys && ln -s /opt/nexo-baileys/node_modules/baileys /evolution/node_modules/baileys
 WORKDIR /evolution

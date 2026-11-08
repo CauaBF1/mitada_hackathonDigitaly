@@ -26,6 +26,7 @@ from .config import settings
 from . import search_provider
 from .scraper_tools import MarketScraper, Reputation, discover_market
 from .routers.voice_webhook import router as voice_router
+from .price_timing_agent import router as price_timing_router
 
 
 class TaskRequest(BaseModel):
@@ -389,6 +390,7 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(title="Nexo internal agents", lifespan=lifespan)
 app.include_router(voice_router)
+app.include_router(price_timing_router)
 
 
 @app.get("/health")
@@ -507,8 +509,6 @@ async def conversation_turn(payload: ConversationTurnRequest, authorization: str
 
 
 _reputation_cache: dict[str, tuple[float, dict, list[dict]]] = {}
-REPUTATION_REFRESH_TOTAL_BUDGET_SECONDS = 25
-REPUTATION_REFRESH_MAX_DOMAINS = 3
 REPUTATION_CACHE_VERIFIED_TTL_SECONDS = 86400
 REPUTATION_CACHE_TRANSIENT_TTL_SECONDS = 120
 
@@ -525,8 +525,9 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
     from .search_provider import tavily_results
 
     now_mono, checked = time.monotonic(), datetime.now(timezone.utc).isoformat()
-    deadline = now_mono + REPUTATION_REFRESH_TOTAL_BUDGET_SECONDS
+    deadline = now_mono + settings.reputation_refresh_total_budget_seconds
     reputations, indications = [], []
+    invalid_offers = []
     offers_by_domain = {}
     for offer in payload.offers:
         url = offer.get("source_url")
@@ -535,28 +536,33 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
         except Exception:
             host = ""
         if not host:
-            reputations.append({"supplier_domain": None, "verified": False, "approved": False, "score": None,
+            invalid_offers.append({"supplier_domain": None, "verified": False, "approved": False, "score": None,
                 "reason": "Fornecedor sem URL válida; reputação desconhecida.", "checked_at": checked, "status": "unknown"})
             continue
         offers_by_domain.setdefault(host, url)
 
-    for index, (host, url) in enumerate(offers_by_domain.items()):
-        if index >= REPUTATION_REFRESH_MAX_DOMAINS:
-            reputations.append({"supplier_domain": host, "verified": False, "approved": False, "score": None,
-                "reason": "Consulta não realizada: limite de três domínios por atualização; reputação desconhecida.",
-                "checked_at": checked, "status": "skipped_limit"})
-            continue
+    selected = list(offers_by_domain.items())[:settings.reputation_refresh_max_domains]
+    skipped = [{"supplier_domain": host, "verified": False, "approved": False, "score": None,
+        "reason": "Consulta não realizada: orçamento configurado de domínios por atualização atingido; reputação desconhecida.",
+        "checked_at": checked, "status": "skipped_limit"}
+        for host, _ in list(offers_by_domain.items())[settings.reputation_refresh_max_domains:]]
+    semaphore = asyncio.Semaphore(settings.reputation_refresh_concurrency)
+
+    async def refresh_one_inner(host: str, url: str):
+        if time.monotonic() >= deadline:
+            return ({"supplier_domain": host, "verified": False, "approved": False, "score": None,
+                "reason": "Consulta não realizada: orçamento total de reputação esgotado.",
+                "checked_at": checked, "status": "skipped_timeout"}, [])
         cached = _reputation_cache.get(host)
         if cached:
             cached_ts, cached_official, cached_indications = cached
-            is_transient = not cached_official.get("verified") and cached_official.get("status") in {"timeout", "skipped_timeout", "unavailable", "blocked"}
+            is_transient = not cached_official.get("verified")
             ttl = REPUTATION_CACHE_TRANSIENT_TTL_SECONDS if is_transient else REPUTATION_CACHE_VERIFIED_TTL_SECONDS
             if now_mono - cached_ts < ttl:
-                reputations.append(cached_official)
-                indications.extend(cached_indications)
-                continue
+                return cached_official, cached_indications
 
-        remaining = deadline - time.monotonic()
+        domain_deadline = min(deadline, time.monotonic() + settings.reputation_refresh_domain_timeout_seconds)
+        remaining = domain_deadline - time.monotonic()
         official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
                     "reason": "Consulta oficial não realizada: orçamento total de tempo esgotado; reputação desconhecida.",
                     "status": "skipped_timeout"}
@@ -568,7 +574,7 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
                     price=Decimal("1.00"), availability="unknown", observed_at=checked, extraction_method="reputation_refresh",
                     evidence_sha256=hashlib.sha256(url.encode()).hexdigest())
                 async with MarketScraper() as scraper:
-                    official = (await asyncio.wait_for(scraper.reputation(product), timeout=min(8, remaining))).model_dump(mode="json")
+                    official = (await asyncio.wait_for(scraper.reputation(product), timeout=max(0.1, remaining))).model_dump(mode="json")
                     official.setdefault("status", "verified" if official.get("verified") else "unverified")
             except TimeoutError:
                 official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
@@ -580,10 +586,10 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
                 official = {"supplier_domain": host, "checked_at": checked, "verified": False, "approved": False, "score": None,
                     "reason": "Reputação oficial indisponível; desconhecida.", "status": status_code}
 
-        remaining = deadline - time.monotonic()
+        remaining = min(deadline, domain_deadline) - time.monotonic()
         if remaining > 0:
             try:
-                found = await asyncio.wait_for(tavily_results(f'"{host}" reputação reclamações'), timeout=min(5, remaining))
+                found = await asyncio.wait_for(tavily_results(f'"{host}" reputação reclamações'), timeout=min(settings.reputation_refresh_search_timeout_seconds, remaining))
                 for row in (found or [])[:5]:
                     indicative.append({"supplier_domain": host, "title": str(row.get("title") or "")[:300],
                         "snippet": str(row.get("description") or "")[:1000], "url": row.get("url"), "timestamp": checked,
@@ -600,8 +606,17 @@ async def reputation_refresh(payload: ReputationRefreshRequest, authorization: s
 
         if official.get("status") != "skipped_timeout":
             _reputation_cache[host] = (now_mono, official, indicative)
-        reputations.append(official)
-        indications.extend(indicative)
+        return official, indicative
+
+    async def refresh_one(host: str, url: str):
+        async with semaphore:
+            return await refresh_one_inner(host, url)
+
+    results = await asyncio.gather(*(refresh_one(host, url) for host, url in selected))
+    reputations.extend(invalid_offers)
+    reputations.extend(row[0] for row in results)
+    reputations.extend(skipped)
+    indications.extend(indication for _, rows in results for indication in rows)
     return {"reputations": reputations, "reputation_indications": indications, "checked_at": checked}
 
 
@@ -613,7 +628,8 @@ async def deliver_callback(payload: dict, output: dict) -> bool:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(url, json=output, headers={"authorization": f"Bearer {secret}"})
-        return response.is_success
+        # Deleted Nest requests have no callback target; do not block all later research tasks.
+        return response.is_success or response.status_code in (404, 410)
     except (httpx.HTTPError, RuntimeError):
         return False
 
