@@ -1,3 +1,14 @@
+<p align="center">
+  <a href="https://hub.digitaly.tech/hackathon-03/">
+    <img src="docs/assets/selo-campea-hackathon-03.png" alt="Campeã da Guerra das IAs · Hackathon Digitaly 03 · Equipe Mitada" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  🏆 <b>Equipe campeã</b> da <a href="https://hub.digitaly.tech/hackathon-03/">Guerra das IAs · Hackathon Digitaly 03</a><br>
+  07 e 08 de novembro de 2026 · Digitaly HUB, São Carlos
+</p>
+
 # Nexo · Procurement Intelligence
 
 O Nexo é uma plataforma de inteligência de compras que pesquisa preços, negocia com fornecedores e apresenta o impacto econômico das opções disponíveis. O objetivo é reunir pesquisa, conversa e comparação em um único workspace para apoiar a decisão do comprador.
